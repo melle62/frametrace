@@ -194,7 +194,8 @@ def main() -> int:
         print(e)
         return 2
     ok, why = presentmon.can_trace()
-    print(f"PresentMon: {exe} (version {presentmon.file_version(exe) or 'unknown'})")
+    pm_version = presentmon.identify(exe)
+    print(f"PresentMon: {exe} (version {pm_version})")
     print(f"Privileges: {why}")
     if not ok:
         return 2
@@ -247,7 +248,7 @@ def main() -> int:
         "",
         f"- Date: {dt.datetime.now().astimezone():%Y-%m-%d %H:%M}",
         f"- Windows: {platform.version()} ({platform.release()})",
-        f"- PresentMon: {exe.name}, file version {presentmon.file_version(exe) or 'unknown'}",
+        f"- PresentMon: {exe.name}, version {pm_version}",
         f"- Privileges: {why}",
         f"- Command: `{' '.join(cmd[1:])}`",
         f"- Stop method: {stop_method}",

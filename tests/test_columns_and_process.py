@@ -7,6 +7,7 @@ the v2.6.0 tag). Row values here are synthetic.
 
 from __future__ import annotations
 
+import hashlib
 import io
 from pathlib import Path
 
@@ -179,3 +180,14 @@ def test_cli_inspect(tmp_path, capsys):
     assert cli_main(["inspect", str(csv_path)]) == 0
     out = capsys.readouterr().out
     assert "Schema: v3" in out and "Target: game.exe" in out
+
+
+def test_identify_presentmon(tmp_path, monkeypatch):
+    other = tmp_path / "PresentMon-2.7.1-x64.exe"
+    other.write_bytes(b"MZ not the pinned build")
+    assert presentmon.identify(other) == "2.7.1 (from file name, not verified)"
+    unnamed = tmp_path / "pm.exe"
+    unnamed.write_bytes(b"MZ")
+    assert presentmon.identify(unnamed).startswith("unknown")
+    monkeypatch.setattr(presentmon, "EXE_SHA256", hashlib.sha256(b"MZ").hexdigest())
+    assert presentmon.identify(unnamed) == f"{presentmon.PINNED_VERSION} (SHA-256 verified)"

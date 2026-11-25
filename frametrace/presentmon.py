@@ -7,7 +7,9 @@ PresentMon of another version keeps working.
 
 from __future__ import annotations
 
+import hashlib
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -95,22 +97,17 @@ def can_trace() -> tuple[bool, str]:
     )
 
 
-def file_version(exe: Path) -> str | None:
-    """File version from the exe's version resource (PresentMon has no --version flag)."""
-    if sys.platform != "win32":
-        return None
-    ps = f"(Get-Item -LiteralPath '{exe}').VersionInfo.FileVersion"
+def identify(exe: Path) -> str:
+    """Which PresentMon this is. The console exe has no --version flag and no version
+    resource, so the pinned build is recognised by its SHA-256, anything else by file name."""
     try:
-        out = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", ps],
-            capture_output=True,
-            text=True,
-            timeout=20,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return out.stdout.strip() or None
+        if hashlib.sha256(exe.read_bytes()).hexdigest() == EXE_SHA256:
+            return f"{PINNED_VERSION} (SHA-256 verified)"
+    except OSError:
+        pass
+    if m := re.search(r"PresentMon-(\d+\.\d+\.\d+)", exe.name, re.IGNORECASE):
+        return f"{m.group(1)} (from file name, not verified)"
+    return "unknown (not the pinned build)"
 
 
 def capture_command(
