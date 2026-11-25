@@ -1,7 +1,7 @@
 # PresentMon setup and findings
 
 Status: researched 2026-11-26 against PresentMon **v2.6.0**: the release notes, the source at the
-`v2.6.0` tag, and the strings in the released exe. The items marked **verify** need real
+`v2.6.0` tag, the strings in the released exe, and a first real capture on Windows 11. The items marked **verify** need real
 captures on Windows. `tools/probe_presentmon.py` is built to answer them.
 
 ## 1. Which PresentMon
@@ -57,9 +57,12 @@ Recommendation: on first run, if `presentmon.can_trace()` fails, offer two optio
 
 ## 4. CSV formats: three schemas
 
-PresentMon 2.6.0 can write three different CSV layouts. All times are in **milliseconds**,
-except the time axis, which is in seconds as long as we don't pass `--qpc_time`, `--qpc_time_ms`
-or `--date_time`. The file is UTF-8 with a BOM. Values that aren't available are written as `NA`.
+PresentMon 2.6.0 can write three different CSV layouts. All frame times are in
+**milliseconds**. The time axis is in milliseconds too in the 2.6 default (`TimeInMs`; 2.6 can't
+write seconds any more), in seconds in 1.x (`TimeInSeconds`), and has no unit in its name in 2.x
+(`CPUStartTime`). `columns.py` converts all of them to seconds (`time_s`) and works out the unit
+from the data when the name doesn't say. We never pass `--qpc_time`, `--qpc_time_ms` or
+`--date_time`. The file is UTF-8 with a BOM. Values that aren't available are written as `NA`.
 A few metrics are written as `0` instead, so a GPU busy of exactly 0 deserves suspicion.
 
 | What | 2.6 default ("v3") | `--v2_metrics` (2.0-2.5 default) | `--v1_metrics` (1.x) | Frametrace name |
@@ -71,7 +74,7 @@ A few metrics are written as `0` instead, so a GPU busy of exactly 0 deserves su
 | GPU time / wait / latency | `MsGPUTime`, `MsGPUWait`, `MsGPULatency` | `GPUTime`, `GPUWait`, `GPULatency` | n/a | `ms_gpu_*` |
 | Display interval | `MsBetweenDisplayChange` | `DisplayedTime` | `msBetweenDisplayChange` | `ms_between_display_change` / `ms_displayed_time` |
 | Dropped (never shown) | `NA` in display columns | `NA` in `DisplayedTime` | `Dropped` = 1 | |
-| Time axis | `TimeInSeconds` | `CPUStartTime` | `TimeInSeconds` | `time_s` |
+| Time axis | `TimeInMs` (ms) | `CPUStartTime` (unit varies) | `TimeInSeconds` (s) | `time_s` (s) |
 | API | `PresentRuntime` | `PresentRuntime` | `Runtime` | `runtime` |
 | VSync / tearing / flip model | `SyncInterval`, `AllowsTearing`, `PresentMode` | same | same | same |
 
@@ -81,17 +84,18 @@ bottleneck detection needs. `frametrace/columns.py` reads all three layouts anyw
 from other PresentMon versions still work. It reports which features are missing instead of
 failing.
 
-Exact 2.6.0 default header (no extra options):
+Exact 2.6.0 default header (no extra options), confirmed by a real capture on Windows 11:
 ```
-Application,ProcessID,SwapChainAddress,PresentRuntime,SyncInterval,PresentFlags,AllowsTearing,PresentMode,TimeInSeconds,MsBetweenSimulationStart,MsBetweenPresents,MsBetweenDisplayChange,MsInPresentAPI,MsRenderPresentLatency,MsUntilDisplayed,CPUStartTimeInSeconds,MsBetweenAppStart,MsCPUBusy,MsCPUWait,MsGPULatency,MsGPUTime,MsGPUBusy,MsGPUWait,MsAnimationError,AnimationTime,MsFlipDelay,MsAllInputToPhotonLatency,MsClickToPhotonLatency
+Application,ProcessID,SwapChainAddress,PresentRuntime,SyncInterval,PresentFlags,AllowsTearing,PresentMode,TimeInMs,MsBetweenSimulationStart,MsBetweenPresents,MsBetweenDisplayChange,MsInPresentAPI,MsRenderPresentLatency,MsUntilDisplayed,CPUStartTimeInMs,MsBetweenAppStart,MsCPUBusy,MsCPUWait,MsGPULatency,MsGPUTime,MsGPUBusy,MsGPUWait,MsAnimationError,AnimationTime,MsFlipDelay,MsAllInputToPhotonLatency,MsClickToPhotonLatency
 ```
 
 ### Intel's README doesn't match the binary
 
 The "Default metrics" table in `README-ConsoleApplication.md` (v2.6.0) lists `CPUStartTime`,
-`DisplayLatency` and `DisplayedTime`. The exe actually writes `CPUStartTimeInSeconds` and doesn't
+`DisplayLatency` and `DisplayedTime`. The exe actually writes `CPUStartTimeInMs` and doesn't
 write the two display columns in the default layout. It also writes `MsFlipDelay`, which the
-README doesn't list. `FrameType`, `VideoBusy`, `VidPnSourceId`, `LayerIndex`, `PresentId`,
+README doesn't list. The time columns are `TimeInMs` and `CPUStartTimeInMs`, because 2.6's
+default time unit is milliseconds. `FrameType`, `VideoBusy`, `VidPnSourceId`, `LayerIndex`, `PresentId`,
 `MsPCLatency` and `InstrumentedLatency` only appear with their opt-in flags. **Rule: trust the
 header row, never the README.** That's why the schema is detected at runtime.
 
@@ -125,7 +129,7 @@ admin rights.
 `PresentMon --session_name Frametrace --terminate_existing_session`. That stops the ETW
 session; the recording process's consumer thread then returns, and the process flushes the CSV
 and exits. The fallback is `CTRL_BREAK_EVENT`: PresentMon's console handler also stops cleanly
-on it. Killing the process is the last resort. **Verify:** the probe reports which method worked.
+on it. Killing the process is the last resort. Confirmed in the first real probe: the recording exited 0.1 s after `--terminate_existing_session`.
 
 We don't use PresentMon's own `--hotkey`. It can't tell us which process is in front, it adds
 `-1`, `-2` suffixes to file names, and it can't run together with our own hotkey on the same

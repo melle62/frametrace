@@ -14,11 +14,14 @@ and the strings in the released PresentMon-2.6.0-x64.exe:
     V2  PresentMon 2.0-2.5 default, or 2.6+ with --v2_metrics
         PresentRuntime, CPUStartTime, FrameTime, CPUBusy, CPUWait, GPUBusy, ...
     V3  PresentMon 2.6+ default
-        TimeInSeconds, MsBetweenPresents, CPUStartTimeInSeconds, MsBetweenAppStart,
+        TimeInMs, MsBetweenPresents, CPUStartTimeInMs, MsBetweenAppStart,
         MsCPUBusy, MsCPUWait, MsGPUBusy, ...
 
-All time values are milliseconds except time_s (seconds since capture start),
-assuming PresentMon runs without --qpc_time / --qpc_time_ms / --date_time.
+All canonical time values are milliseconds except time_s, which is seconds since the
+capture started. PresentMon 2.6 writes its time axis in milliseconds by default
+(TimeInMs), 1.x in seconds (TimeInSeconds), and 2.x as CPUStartTime, whose unit
+depends on the version; time_s is converted from whichever unit the file uses.
+Captures made with --qpc_time or --date_time are not supported.
 """
 
 from __future__ import annotations
@@ -28,6 +31,7 @@ import io
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from enum import Enum
+from itertools import pairwise
 from pathlib import Path
 
 
@@ -52,8 +56,14 @@ CANDIDATES: dict[str, tuple[str, ...]] = {
     "present_mode": ("PresentMode",),
     "frame_type": ("FrameType",),
     "dropped": ("Dropped",),  # V1 only; V2/V3 mark undisplayed frames with NA instead
-    # time axis (seconds since capture start)
-    "time_s": ("TimeInSeconds", "CPUStartTimeInSeconds", "CPUStartTime"),
+    # time axis, converted to seconds since capture start (see TIME_SCALE)
+    "time_s": (
+        "TimeInMs",
+        "TimeInSeconds",
+        "CPUStartTimeInMs",
+        "CPUStartTimeInSeconds",
+        "CPUStartTime",
+    ),
     # classic frame time: interval between Present() calls (what CapFrameX etc. use)
     "ms_between_presents": ("MsBetweenPresents",),
     "ms_in_present_api": ("MsInPresentAPI",),
@@ -76,6 +86,16 @@ CANDIDATES: dict[str, tuple[str, ...]] = {
     "ms_click_to_photon": ("MsClickToPhotonLatency", "ClickToPhotonLatency"),
     "ms_all_input_to_photon": ("MsAllInputToPhotonLatency", "AllInputToPhotonLatency"),
     "ms_pc_latency": ("MsPCLatency",),
+}
+
+# Factor that converts each time-axis column to seconds. None = unit not in the name,
+# worked out from the data (see _infer_time_scale).
+TIME_SCALE: dict[str, float | None] = {
+    "timeinms": 0.001,
+    "cpustarttimeinms": 0.001,
+    "timeinseconds": 1.0,
+    "cpustarttimeinseconds": 1.0,
+    "cpustarttime": None,
 }
 
 INT_FIELDS = frozenset({"pid", "sync_interval", "allows_tearing", "dropped"})
@@ -126,7 +146,7 @@ class ColumnMap:
 
 
 def map_columns(headers: Sequence[str]) -> ColumnMap:
-    headers = tuple(h.strip().lstrip("﻿") for h in headers)
+    headers = tuple(h.strip().lstrip("\ufeff") for h in headers)
     lower = {h.lower(): i for i, h in enumerate(headers)}
     index: dict[str, int] = {}
     for canonical, candidates in CANDIDATES.items():
@@ -150,11 +170,33 @@ def _convert(name: str, raw: str):
         return None
 
 
+def _infer_time_scale(rows: list[dict]) -> float:
+    """Seconds-per-unit of a time column whose name doesn't say its unit.
+
+    Compares the step between consecutive frames of the same process with the
+    frame time in milliseconds: equal steps mean the column is in ms.
+    """
+    by_pid: dict[object, list[float]] = {}
+    frame_ms: list[float] = []
+    for r in rows:
+        if r.get("time_s") is not None:
+            by_pid.setdefault(r.get("pid"), []).append(r["time_s"])
+        ft = r.get("ms_frame_time") or r.get("ms_between_presents")
+        if ft:
+            frame_ms.append(ft)
+    steps = sorted(b - a for times in by_pid.values() for a, b in pairwise(times) if b > a)
+    if not steps or not frame_ms:
+        return 0.001  # PresentMon 2.6+ default is milliseconds
+    median_step = steps[len(steps) // 2]
+    median_frame = sorted(frame_ms)[len(frame_ms) // 2]
+    return 0.001 if median_step / median_frame > 0.1 else 1.0
+
+
 def iter_frames(stream: io.TextIOBase) -> tuple[ColumnMap, Iterator[dict]]:
     """Return the column map and an iterator of rows keyed by canonical name.
 
     Missing values ("NA" or empty) become None. Rows shorter than the header
-    (e.g. a capture cut off mid-write) are skipped.
+    (e.g. a capture cut off mid-write) are skipped. time_s is in seconds.
     """
     reader = csv.reader(stream)
     try:
@@ -163,12 +205,32 @@ def iter_frames(stream: io.TextIOBase) -> tuple[ColumnMap, Iterator[dict]]:
         raise ValueError("empty CSV: no header row") from None
     cmap = map_columns(headers)
     width = len(cmap.headers)
+    time_pos = cmap.index.get("time_s")
+    scale = TIME_SCALE.get(cmap.headers[time_pos].lower(), 1.0) if time_pos is not None else 1.0
+
+    def parse(raw: list[str]) -> dict:
+        return {name: _convert(name, raw[pos]) for name, pos in cmap.index.items()}
+
+    def scaled(row: dict, factor: float) -> dict:
+        if factor != 1.0 and row.get("time_s") is not None:
+            row["time_s"] *= factor
+        return row
 
     def rows() -> Iterator[dict]:
+        factor = scale
+        buffered: list[dict] = []
+        if factor is None:  # unit not in the column name: look at the first rows
+            for raw in reader:
+                if len(raw) >= width:
+                    buffered.append(parse(raw))
+                    if len(buffered) >= 500:
+                        break
+            factor = _infer_time_scale(buffered)
+        for row in buffered:
+            yield scaled(row, factor)
         for raw in reader:
-            if len(raw) < width:
-                continue
-            yield {name: _convert(name, raw[pos]) for name, pos in cmap.index.items()}
+            if len(raw) >= width:
+                yield scaled(parse(raw), factor)
 
     return cmap, rows()
 

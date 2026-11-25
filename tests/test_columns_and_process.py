@@ -1,8 +1,8 @@
 """Tests for CSV schema detection, column mapping and game auto-detection.
 
 Header rows in fixtures/headers/ are the exact headers PresentMon 2.6.0 writes with
-default options, --v2_metrics and --v1_metrics (taken from PresentMon/CsvOutput.cpp at
-the v2.6.0 tag). Row values here are synthetic.
+default options (copied from a real capture), --v2_metrics and --v1_metrics (from
+PresentMon/CsvOutput.cpp at the v2.6.0 tag). Row values here are synthetic.
 """
 
 from __future__ import annotations
@@ -23,14 +23,22 @@ def header(name: str) -> list[str]:
     return (HEADERS / f"presentmon-2.6.0-{name}.csv").read_text().strip().split(",")
 
 
-def make_csv(headers: list[str], rows: list[dict]) -> str:
-    """Build CSV text, placing canonical values in the right columns. Others get 0."""
+def make_csv(headers: list[str], rows: list[dict], time_unit_s: float | None = None) -> str:
+    """Build CSV text, placing canonical values in the right columns. Others get 0.
+
+    time_s values (seconds) are written in the unit the time column uses: taken from
+    its name, or time_unit_s for a column whose name doesn't say (ms if not given).
+    """
     cmap = columns.map_columns(headers)
+    time_col = cmap.headers[cmap.index["time_s"]].lower()
+    unit = columns.TIME_SCALE.get(time_col) or time_unit_s or 0.001
     lines = [",".join(headers)]
     for row in rows:
         cells = ["0"] * len(headers)
         for name, value in row.items():
             if name in cmap.index:
+                if name == "time_s" and value is not None:
+                    value = round(value / unit, 6)
                 cells[cmap.index[name]] = "NA" if value is None else str(value)
         lines.append(",".join(cells))
     return "\n".join(lines) + "\n"
@@ -191,3 +199,24 @@ def test_identify_presentmon(tmp_path, monkeypatch):
     assert presentmon.identify(unnamed).startswith("unknown")
     monkeypatch.setattr(presentmon, "EXE_SHA256", hashlib.sha256(b"MZ").hexdigest())
     assert presentmon.identify(unnamed) == f"{presentmon.PINNED_VERSION} (SHA-256 verified)"
+
+
+@pytest.mark.parametrize(
+    "name,unit",
+    [("default", None), ("v1_metrics", None), ("v2_metrics", 0.001), ("v2_metrics", 1.0)],
+)
+def test_time_axis_is_seconds_in_every_schema(name, unit):
+    # 2.6 default writes TimeInMs, 1.x TimeInSeconds, 2.x CPUStartTime (unit varies)
+    text = make_csv(header(name), frames("game.exe", 5, 500, 2.0, 1.5), time_unit_s=unit)
+    _, rows = columns.iter_frames(io.StringIO(text))
+    rows = list(rows)
+    assert rows[-1]["time_s"] == pytest.approx(499 * 0.002, rel=1e-3)
+    (p,) = process.summarize_presenters(rows)
+    assert p.avg_fps == pytest.approx(500, rel=0.01)
+
+
+def test_real_2_6_0_header_has_frame_stats():
+    # header copied from a real PresentMon 2.6.0 capture on Windows 11
+    cmap = columns.map_columns(header("default"))
+    assert cmap.headers[cmap.index["time_s"]] == "TimeInMs"
+    assert all(cmap.capabilities().values())

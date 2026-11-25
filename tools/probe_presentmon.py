@@ -79,6 +79,18 @@ def stop_capture(exe: Path, proc: subprocess.Popen, timeout: float = 15.0) -> st
         return "KILLED (neither clean stop worked; CSV may be incomplete)"
 
 
+def read_console_log(path: Path) -> str:
+    """PresentMon writes UTF-16 to a redirected console, other tools write UTF-8."""
+    raw = path.read_bytes()
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+        text = raw.decode("utf-16", errors="replace")
+    elif b"\x00" in raw[:200]:
+        text = raw.decode("utf-16-le", errors="replace")
+    else:
+        text = raw.decode("utf-8", errors="replace")
+    return "\n".join(line.rstrip() for line in text.splitlines() if line.strip())
+
+
 def pct(n: int, d: int) -> str:
     return f"{100 * n / d:.1f}%" if d else "n/a"
 
@@ -224,7 +236,7 @@ def main() -> int:
         stop_method = stop_capture(exe, proc)
     print("Capture stopped. Analyzing...")
 
-    log_tail = log_path.read_text(encoding="utf-8", errors="replace").strip().splitlines()[-15:]
+    log_tail = read_console_log(log_path).strip().splitlines()[-15:]
     if not raw_csv.is_file():
         print("No CSV was written. PresentMon output:\n" + "\n".join(log_tail))
         return 1
