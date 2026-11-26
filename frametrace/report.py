@@ -10,7 +10,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any
 
-from frametrace import __version__, goals
+from frametrace import __version__, goals, skill_index
 from frametrace.analyze import HIGH_FPS, Analysis
 from frametrace.game import GameInfo
 from frametrace.gamesettings import GameSettings
@@ -337,6 +337,26 @@ def goal_lines(r: dict, goal: goals.Goal, target: int | None) -> list[str]:
     ]
 
 
+def skill_line(r: dict) -> str:
+    """Name the Frametrace skill for the captured game, or the general one. Any AI that can open
+    links can read it as plain text; the prompt works without it."""
+    exe = ((r.get("game") or {}).get("exe") or r["capture"].get("app") or "").lower()
+    hit = skill_index.GAME_SKILLS.get(exe)
+    if hit:
+        skill, game = hit
+        return (
+            f"Skill: the Frametrace skill for {game} is {skill}, with measured setting costs for"
+            f" this game. Use it if you have it or can open {skill_index.SKILLS_URL}/{skill}/SKILL.md;"
+            " this prompt also works without it."
+        )
+    return (
+        f"Skill: there's no Frametrace skill for {game_name(r)} yet. Use the general skill"
+        f" {skill_index.GENERAL} if you have it or can open"
+        f" {skill_index.SKILLS_URL}/{skill_index.GENERAL}/SKILL.md; it can also run a study of this"
+        " game to build one."
+    )
+
+
 def task_lines(r: dict, goal: goals.Goal, target: int | None) -> list[str]:
     """Instructions for the AI. The report is the prompt: it works without the skill."""
     name = game_name(r)
@@ -380,6 +400,7 @@ def task_lines(r: dict, goal: goals.Goal, target: int | None) -> list[str]:
             "If the target is met with room to spare, recommend which settings to raise for"
             " better visuals while staying above it."
         )
+    lines.append(skill_line(r))
     return lines
 
 
@@ -701,6 +722,7 @@ def compare(a: dict, b: dict, goal_key: str | None = None, target_fps: int | Non
             if summary.settings_unchanged_but_moved(a, b, target)
             else []
         ),
+        skill_line(b),
         "",
         "| Metric | A | B | Change |",
         "|---|---|---|---|",
