@@ -653,12 +653,13 @@ Used for the System block and the raw notes in the report view.
 | Property | Value |
 |----------|-------|
 | Background | `--screen` in both modes |
-| Graticule | 1px `--graticule`; 10 major divisions across, 4 down; minor ticks on the center lines |
+| Graticule | 1px `--graticule`; 4 major divisions down. Across: 10 on the empty screen; with a trace, one per half time-label step (about 10), so every time label sits on a line. Minor ticks (five per division) on the horizontal centre line |
 | Traces | CH1 frame time `--ch1`, CH2 GPU busy `--ch2`, CH3 CPU busy `--ch3`; 1.5px, butt caps |
 | Phosphor bloom | CH1 only: a 4px blur copy at 35% opacity under the trace |
-| Hitch marker | 1px dashed `--warning` vertical line plus a mono label `33.2 ms` |
+| Hitch marker | 1px dashed `--warning` vertical line, a 1px CH1 tick up to the value, and a mono label on the worst one: `14.8 ms @ 61.4 s` |
+| Layers | bottom to top: hitch markers, CH1 band, CH3, CH2, REF, CH1 bloom and median, hitch ticks (the busy channels sit above the band so they never hide under it) |
 | Legend | Top-left, `CH1 FRAME TIME` style labels with 8px swatches in `--text3` on the screen |
-| Scale | Bottom-left mono `--caption`: `5 ms/div · 10 s/div` |
+| Scale | Mono `--caption` beside the panel legend: `1 ms/div · 10 s/div · 99.0 s`; axis values on the screen in `--text3` |
 | Radius | 4px |
 
 ## 29. LAMP (instrument part)
@@ -716,3 +717,26 @@ Read top to bottom like the summary view:
 
 Run-to-run noise bands (measured on CS2): average and median 1%, lows and P99 3%, 0.1% low and worst second 5%, max frame time 15%, hitch time 0.2 pp, latency 3% (median) and 5% (P95).
 
+
+## 34. NUMBERS IN PROSE
+
+| Property | Value |
+|----------|-------|
+| Where | Verdict sentence, check rows, compare notes, alert banners |
+| Words | Plex Sans, the line's own size and color |
+| Numbers | Plex Mono at the matching size, `--text1`, unit included: `2.16 ms`, `93%`, `6000 MT/s`, `~200` |
+| Not numbers | Digits inside names stay in the sans: `7800X3D`, `DDR5`, `P95`, `SHA-256` |
+| Wrapping | A no-break space between number and unit, so `2.16 ms` never splits across lines |
+
+## 35. SCROLLBAR
+
+| Property | Value |
+|----------|-------|
+| Width | 6px, no arrows, no trough |
+| Thumb | `--surface3`; `--text4` on hover or while dragging; square ends; min 24px |
+| Gutter | Always reserved (8px gap + 6px), so a page's right edge does not move when it starts to scroll |
+| Hidden | When everything fits, nothing is drawn |
+
+## 36. SELECT CHEVRON
+
+The select trigger's arrow is a `ti-chevron-down` drawn inside the field (`--text3`, `--text1` on hover), with no button, divider or border of its own. In Tk it is an image element in the combobox layout.

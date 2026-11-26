@@ -6,6 +6,7 @@ Kept apart from the Tk code so the wording can be tested without a display.
 from __future__ import annotations
 
 import datetime as dt
+import re
 from dataclasses import dataclass
 
 PRESENT_MODE_SHORT = {
@@ -202,6 +203,36 @@ def system_rows(lines: list[str]) -> list[tuple[str, str]]:
     return out
 
 
+SETTING_NAMES = {
+    "power plan": "Power plan",
+    "Game Mode": "Game Mode",
+    "HAGS": "HAGS",
+    "memory integrity": "Memory integrity",
+    "windowed optimizations": "Windowed optimizations",
+}
+
+
+def system_sections(lines: list[str]) -> list[tuple[str, list[tuple[str, str]]]]:
+    """The System tab: hardware rows, then one row per Windows setting."""
+    hardware, settings = [], []
+    for key, value in system_rows(lines):
+        if key != "Settings":
+            hardware.append((key, value))
+            continue
+        for part in value.split(" | "):
+            for prefix, name in SETTING_NAMES.items():
+                if part.startswith(prefix + " "):
+                    shown = part[len(prefix) + 1 :].strip()
+                    settings.append((name, "unknown" if shown == "?" else shown))
+                    break
+            else:
+                settings.append(("", part))
+    out = [("Hardware", hardware)]
+    if settings:
+        out.append(("Windows settings", settings))
+    return out
+
+
 # --- compare --------------------------------------------------------------------------------
 
 # Run-to-run noise measured on CS2 (two identical 100 s runs): average 0.2% apart, present-to-
@@ -326,6 +357,34 @@ def runs(text: str) -> list[tuple[str, bool]]:
 
 def plain(text: str) -> str:
     return text.replace("`", "")
+
+
+# A number in running text, with its unit: "426.7 FPS", "2.25 ms", "93%", "6000 MT/s".
+# Not digits inside names: 7800X3D, DDR5, P95, SHA-256, 2x.
+_NUMBER = re.compile(
+    r"(?<![\w.~-])[-+~]?\d+(?:,\d{3})*(?:\.\d+)?"
+    r"(?:\s?(?:FPS|ms|MT/s|Hz|GB|pp|s|%)(?![\w/])|%)?"
+    r"(?![\w])"
+)
+
+
+def number_runs(text: str) -> list[tuple[str, bool]]:
+    """Split prose so every number (and its unit) can be set in Plex Mono.
+
+    Text with `ticks` is split on the ticks instead (see runs()).
+    """
+    if "`" in text:
+        return runs(text)
+    out: list[tuple[str, bool]] = []
+    pos = 0
+    for m in _NUMBER.finditer(text):
+        if m.start() > pos:
+            out.append((text[pos : m.start()], False))
+        out.append((m.group(), True))
+        pos = m.end()
+    if pos < len(text):
+        out.append((text[pos:], False))
+    return out
 
 
 def compare_verdict(a: dict, b: dict) -> tuple[str, list[tuple[str, str]], list[str]]:

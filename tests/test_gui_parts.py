@@ -226,8 +226,8 @@ def test_window_smoke(tk_root, tmp_path, monkeypatch):
     app = gui.App(tk_root, captures_root=root_dir)
     tk_root.update()
     assert len(app.captures) == 2 and app.selected == [app.captures[0][0]]
-    assert app.verdict_head.cget("text") == "CPU-limited."  # newest first
-    assert app.status_word.cget("text") == "SETUP"  # PresentMon missing
+    assert app.headline == "CPU-limited."  # newest first
+    assert theme.untrack(app.status_word.cget("text")) == "SETUP"  # PresentMon missing
     assert not app.start_btn.enabled
     app.handle("trace", {"folder": app.selected[0], "trace": trace.load(app.selected[0])})
     tk_root.update()
@@ -241,10 +241,113 @@ def test_window_smoke(tk_root, tmp_path, monkeypatch):
     for f in app.selected:
         app.handle("trace", {"folder": f, "trace": trace.load(f)})
     assert app.compare_scope.ref is not None and app.compare_scope.trace is not None
+    app._compare_with(app.captures[0][0])  # the rows' context menu
+    assert len(app.selected) == 2 and app.tabs.current == "Compare"
+    app.select(app.captures[0][0], add=False)
+    assert app.selected == [app.captures[0][0]]
+
+    class Key:
+        widget = tk_root
+
+    app._key_move(Key, 1)  # Down arrow: next capture
+    assert app.selected == [app.captures[1][0]]
+    app.handle("system", {"info": fake_system()})
+    assert "\n" in app.system_line() and "7800X3D" in app.system_line()
     app.toggle_theme()
     tk_root.update()
     assert (
         app.t.name == "light"
         and json.loads((tmp_path / "settings.json").read_text())["theme"] == "light"
     )
+    app.theme_var.set("dark")  # the top bar's switch
+    app.toggle_theme()
+    assert app.t.name == "dark"
     app.on_close()
+
+
+def test_numbers_in_prose_are_found_with_their_units():
+    nums = [
+        p for p, is_num in summary.number_runs("RAM runs at 6000 MT/s (kit rated 6000).") if is_num
+    ]
+    assert nums == ["6000 MT/s", "6000"]
+    text = "93% of frames. Median GPU busy 2.16 ms: about 1,462 FPS, ~200 or -3.8% and +0.12 pp."
+    assert [p for p, n in summary.number_runs(text) if n] == [
+        "93%",
+        "2.16 ms",
+        "1,462 FPS",
+        "~200",
+        "-3.8%",
+        "+0.12 pp",
+    ]
+    # digits inside names stay in the sans, and a trailing comma is not part of a number
+    names = "7800X3D DDR5 P95 SHA-256 2x build 26300, done"
+    assert [p for p, n in summary.number_runs(names) if n] == ["26300"]
+    assert "".join(p for p, _ in summary.number_runs(text)) == text
+    assert summary.number_runs("B is `4.2%` faster") == summary.runs("B is `4.2%` faster")
+
+
+def test_display_scale_and_silk_tracking():
+    assert theme.scale_for(96) == 1.0
+    assert theme.scale_for(100) == 1.0  # Xvfb and some monitors report ~100 DPI
+    assert theme.scale_for(120) == 1.25
+    assert theme.scale_for(144) == 1.5
+    assert theme.scale_for(400) == 3.0
+    assert theme.track("CPU") == "C P U"
+    assert theme.untrack(theme.track("1% LOW")) == "1% LOW"
+
+
+def test_system_sections_split_settings():
+    lines = [
+        "CPU: AMD Ryzen 7 7800X3D 8-Core Processor (8C/16T)",
+        (
+            "Settings: power plan High performance | Game Mode on | HAGS ? | memory integrity off"
+            " | windowed optimizations on"
+        ),
+    ]
+    (hw_title, hw), (st_title, st) = summary.system_sections(lines)
+    assert hw_title == "Hardware" and hw[0][0] == "CPU"
+    assert st_title == "Windows settings"
+    assert st == [
+        ("Power plan", "High performance"),
+        ("Game Mode", "on"),
+        ("HAGS", "unknown"),
+        ("Memory integrity", "off"),
+        ("Windowed optimizations", "on"),
+    ]
+    assert summary.system_sections(["(system info not available)"]) == [
+        ("Hardware", [("", "(system info not available)")])
+    ]
+
+
+def test_instruments_on_tk(tk_root):
+    from frametrace.instruments import RichText, Scope, ThinScrollbar
+
+    t = theme.apply(tk_root, "dark")
+    box = tk_root.nametowidget(".")
+    rt = RichText(box, t, "word " * 60)
+    rt.place(x=0, y=0, width=200)
+    tk_root.update()
+    rt._fit()
+    assert int(rt.cget("height")) > 1  # wraps and grows
+    assert "num" in rt.tag_names() and not rt.tag_ranges("num")
+    rt.set("Median GPU busy 2.16 ms")
+    assert rt.get(*rt.tag_ranges("num")) == "2.16 ms"  # number and unit stay together
+
+    moved = []
+    sb = ThinScrollbar(box, t, lambda *a: moved.append(a))
+    sb.place(x=0, y=0, width=6, height=200)
+    tk_root.update()
+    sb.set(0.0, 1.0)
+    assert not sb.needed and not sb.find_all()
+    sb.set(0.25, 0.5)
+    assert sb.needed and sb.find_all()
+
+    rows = make_rows(n=6000, ft=2.0, spikes_every=1500)
+    scope = Scope(box, t)
+    scope.show(trace.build(rows, buckets=100))
+    assert scope.scale_text().endswith(" s") and "ms/div" in scope.scale_text()
+    assert scope.has("ch1") and scope.has("ch2")
+    for r in rows:
+        r["ms_gpu_busy"] = None
+    scope.show(trace.build(rows, buckets=100))
+    assert not scope.has("ch2")

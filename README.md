@@ -78,7 +78,16 @@ against a pinned SHA-256). Recording needs administrator rights or membership in
    already on your clipboard. Paste it into any AI.
 
 Captures are saved in `Documents\Frametrace\captures` and listed on the left.
-<kbd>Ctrl</kbd>+click a second capture to compare the two.
+<kbd>Ctrl</kbd>+click a second capture to compare the two, or right-click a capture for its folder,
+its report or a comparison with the selected one.
+
+| Keys | |
+|---|---|
+| <kbd>F10</kbd> | start or stop a capture, in any game, even fullscreen |
+| <kbd>↑</kbd> <kbd>↓</kbd> | previous or next capture |
+| <kbd>Ctrl</kbd>+<kbd>C</kbd> | copy the report (or the comparison) |
+| <kbd>Ctrl</kbd>+<kbd>Tab</kbd> | next tab: Summary, Report, System, Compare |
+| <kbd>Ctrl</kbd>+<kbd>O</kbd> | open the capture's folder |
 
 Command line: `python -m frametrace report capture.csv` analyzes an existing PresentMon CSV,
 and `python -m frametrace compare before after` compares two saved captures.
@@ -104,10 +113,10 @@ frametrace/          core package, game-agnostic (no game-specific code, ever)
   process.py         foreground process + automatic game detection
   presentmon.py      locating and driving PresentMon
   download.py        PresentMon download with hash check
-  assets/fonts/      IBM Plex Sans and Mono (SIL OFL 1.1)
+  assets/            window icon; fonts/: IBM Plex Sans and Mono (SIL OFL 1.1)
 design/              the Frametrace design system (hue skill: tokens, components, previews)
 skill/               the AI skill (SKILL.md) and optional per-game profiles
-tools/               setup, probe and brand-image scripts (tools/brand.py)
+tools/               setup, probe, icon and README image scripts (brand.py, window_shots.py)
 tests/               pytest suite and fixtures
 docs/                design notes, findings, README images (docs/brand)
 bin/                 PresentMon goes here (not committed)

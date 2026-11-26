@@ -39,20 +39,30 @@ from frametrace.instruments import (
     FlatButton,
     KeyCap,
     Lamp,
+    Progress,
     Readout,
+    RichText,
     Scope,
     ScrollFrame,
     Segmented,
     SplitBar,
     Tabs,
+    ThinScrollbar,
     frame,
     label,
+    placeholder,
     rule,
+    set_silk,
     silk,
+    swatch,
+    wheel_steps,
     wordmark,
 )
+from frametrace.theme import px, track
 
 SETTINGS_PATH = Path(os.environ.get("APPDATA", Path.home())) / "Frametrace" / "settings.json"
+ASSETS = Path(__file__).parent / "assets"
+APP_ID = "melle62.Frametrace"
 DEFAULTS = {
     "hotkey": "F10",
     "length_s": 30,
@@ -63,6 +73,7 @@ DEFAULTS = {
 }
 LENGTHS = ["10", "20", "30", "60", "90", "100", "120", "180", "300"]
 TABS = ["Summary", "Report", "System", "Compare"]
+NOTE_MS = 2000  # how long a confirmation stays up
 
 
 def load_settings() -> dict:
@@ -102,12 +113,19 @@ class App:
         self.capture_error: str | None = None
         self.record_info: dict = {}
         self.note_job: str | None = None
+        self.poll_job: str | None = None
+        self.closed = False
         self.pm_status = ("idle", "PresentMon", "checking")
         self.trace_status = ("idle", "Trace access", "checking")
 
+        theme.set_scale(root)
         root.title("Frametrace")
-        root.geometry("1200x820")
-        root.minsize(1000, 700)
+        w, h = px(1200), px(820)
+        sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
+        w, h = min(w, int(sw * 0.92)), min(h, int(sh * 0.88))
+        root.geometry(f"{w}x{h}")
+        root.minsize(min(px(1000), w), min(px(680), h))
+        self._set_icon()
         self.fonts = theme.make_fonts(root)
         # state shared by both themes: the variables survive a rebuild
         self.hotkey_var = tk.StringVar(value=self.settings["hotkey"])
@@ -115,14 +133,69 @@ class App:
         self.length_var = tk.StringVar(value=str(self.settings["length_s"]))
         self.process_var = tk.StringVar(value=self.settings["process_name"])
         self.sound_var = tk.BooleanVar(value=self.settings["sound"])
+        self.theme_var = tk.StringVar(value=self.settings.get("theme", "dark"))
         self.hotkey_note = ("", "text3")
 
         self.build()
+        self.manual_var.trace_add("write", lambda *_: self._paint_length())
+        self._bind_keys()
         root.protocol("WM_DELETE_WINDOW", self.on_close)
         threading.Thread(target=self._load_system, daemon=True).start()
         self.check_setup()
         self.refresh_history(select_first=True)
-        root.after(100, self.poll)
+        self.poll_job = root.after(100, self.poll)
+
+    def _set_icon(self) -> None:
+        try:
+            images = [tk.PhotoImage(file=str(ASSETS / f"icon-{s}.png")) for s in (256, 48, 32, 16)]
+            self.root.iconphoto(True, *images)
+            self._icons = images  # Tk keeps only a reference
+        except (tk.TclError, OSError):
+            pass
+
+    def _bind_keys(self) -> None:
+        r = self.root
+        r.bind_all("<Control-c>", self._key_copy, add="+")
+        r.bind_all("<Control-o>", lambda _e: self.open_selected(), add="+")
+        r.bind_all("<Control-Tab>", lambda _e: (self.tabs.cycle(1), "break")[1], add="+")
+        for seq in ("<Control-Shift-Tab>", "<Control-ISO_Left_Tab>"):
+            try:
+                r.bind_all(seq, lambda _e: (self.tabs.cycle(-1), "break")[1], add="+")
+            except tk.TclError:  # ISO_Left_Tab is an X11 keysym
+                pass
+        r.bind_all("<Up>", lambda e: self._key_move(e, -1), add="+")
+        r.bind_all("<Down>", lambda e: self._key_move(e, 1), add="+")
+
+    @staticmethod
+    def _typing(widget) -> bool:
+        return isinstance(widget, (tk.Entry, ttk.Entry, ttk.Combobox, tk.Text)) and not isinstance(
+            widget, RichText
+        )
+
+    def _key_copy(self, e) -> str | None:
+        w = e.widget
+        if self._typing(w):
+            try:  # let a text field copy its own selection
+                if (
+                    w.selection_present()
+                    if hasattr(w, "selection_present")
+                    else w.tag_ranges("sel")
+                ):
+                    return None
+            except tk.TclError:
+                pass
+        self.copy_shown()
+        return "break"
+
+    def _key_move(self, e, step: int) -> str | None:
+        if self._typing(e.widget) or not self.captures:
+            return None
+        folders = [f for f, _ in self.captures]
+        cur = self.selected[-1] if self.selected else None
+        i = folders.index(cur) + step if cur in folders else 0
+        if 0 <= i < len(folders):
+            self.select(folders[i], add=False)
+        return "break"
 
     # --- building -----------------------------------------------------------------------------
 
@@ -134,7 +207,7 @@ class App:
 
         self._build_topbar()
         self.progress = tk.Canvas(
-            self.root, height=2, bg=t.c["background"], highlightthickness=0, bd=0
+            self.root, height=px(2), bg=t.c["background"], highlightthickness=0, bd=0
         )
         self.progress.pack(fill="x")
         rule(self.root, t).pack(fill="x")
@@ -150,39 +223,43 @@ class App:
 
     def _build_topbar(self) -> None:
         t = self.t
-        bar = frame(self.root, t, height=52)
+        bar = frame(self.root, t, height=px(52))
         bar.pack(fill="x")
         bar.pack_propagate(False)
-        wordmark(bar, t).pack(side="left", padx=(20, 0))
-        rule(bar, t, vertical=True).pack(side="left", fill="y", padx=24, pady=14)
+        wordmark(bar, t).pack(side="left", padx=(px(20), 0))
+        rule(bar, t, vertical=True).pack(side="left", fill="y", padx=px(24), pady=px(14))
         self.status_lamp = Lamp(bar, t, "idle")
         self.status_lamp.pack(side="left")
         self.status_word = silk(bar, t, "Ready", fg="text1")
-        self.status_word.pack(side="left", padx=(8, 12))
+        self.status_word.pack(side="left", padx=(px(8), px(12)))
         self.status_hint = frame(bar, t)
         self.status_hint.pack(side="left")
 
         self.start_btn = FlatButton(
             bar, t, "Start capture", self.toggle_capture, "primary", key=self.hotkey_var.get()
         )
-        self.start_btn.pack(side="right", padx=(8, 16))
-        mode = "Light" if t.dark else "Dark"
-        FlatButton(bar, t, mode, self.toggle_theme, "ghost", small=True).pack(side="right")
+        self.start_btn.pack(side="right", padx=(px(16), px(16)))
+        self.theme_var.set(t.name)
+        Segmented(
+            bar, t, [("Dark", "dark"), ("Light", "light")], self.theme_var, self.toggle_theme
+        ).pack(side="right")
 
     def _build_rail(self, body: tk.Frame) -> None:
         t = self.t
-        rail = frame(body, t, width=296)
+        rail = frame(body, t, width=px(296))
         rail.pack(side="left", fill="y")
         rail.pack_propagate(False)
 
         sec = frame(rail, t)
-        sec.pack(fill="x", padx=16, pady=(16, 12))
-        silk(sec, t, "Capture").pack(anchor="w", pady=(0, 12))
+        sec.pack(fill="x", padx=px(16), pady=(px(16), px(14)))
+        silk(sec, t, "Capture").pack(anchor="w", pady=(0, px(12)))
         grid = frame(sec, t)
         grid.pack(fill="x")
         grid.columnconfigure(1, weight=1)
 
-        label(grid, t, "Hotkey", fg="text2").grid(row=0, column=0, sticky="w", pady=4)
+        label(grid, t, "Hotkey", fg="text2").grid(
+            row=0, column=0, sticky="w", pady=px(4), padx=(0, px(12))
+        )
         combo = ttk.Combobox(
             grid,
             textvariable=self.hotkey_var,
@@ -190,111 +267,120 @@ class App:
             width=12,
             font=t.fonts["mono_sm"],
         )
-        combo.grid(row=0, column=1, sticky="ew", pady=4)
+        combo.grid(row=0, column=1, sticky="ew", pady=px(4))
         combo.bind("<<ComboboxSelected>>", lambda _e: self.apply_hotkey())
         combo.bind("<Return>", lambda _e: self.apply_hotkey())
         combo.bind("<FocusOut>", lambda _e: self.apply_hotkey())
         self.hotkey_label = label(
-            grid,
-            t,
-            self.hotkey_note[0],
-            font="caption",
-            fg=self.hotkey_note[1],
-            wraplength=190,
-            justify="left",
+            grid, t, "", font="caption", fg="warning", wraplength=px(190), justify="left"
         )
-        self.hotkey_label.grid(row=1, column=1, sticky="w")
+        self.hotkey_label.grid(row=1, column=1, sticky="w", pady=(0, px(4)))
+        self._show_hotkey_note()
 
-        label(grid, t, "Length", fg="text2").grid(
-            row=2, column=0, sticky="w", pady=(8, 4), padx=(0, 12)
-        )
+        label(grid, t, "Length", fg="text2").grid(row=2, column=0, sticky="w", pady=px(4))
         ln = frame(grid, t)
-        ln.grid(row=2, column=1, sticky="ew", pady=(8, 4))
+        ln.grid(row=2, column=1, sticky="ew", pady=px(4))
         Segmented(ln, t, [("Fixed", False), ("Manual", True)], self.manual_var, self.save).pack(
             side="left"
         )
         self.length_box = ttk.Combobox(
-            ln, textvariable=self.length_var, values=LENGTHS, width=5, font=t.fonts["mono_sm"]
+            ln, textvariable=self.length_var, values=LENGTHS, width=4, font=t.fonts["mono_sm"]
         )
-        self.length_box.pack(side="left", padx=(6, 4))
+        self.length_box.pack(side="left", padx=(px(6), px(4)), fill="x", expand=True)
         self.length_box.bind("<<ComboboxSelected>>", lambda _e: self.save())
+        self.length_box.bind("<Return>", lambda _e: self.save())
         self.length_box.bind("<FocusOut>", lambda _e: self.save())
         label(ln, t, "s", font="mono_sm", fg="text3").pack(side="left")
+        self._paint_length()
 
-        label(grid, t, "Game", fg="text2").grid(row=3, column=0, sticky="w", pady=(8, 4))
+        label(grid, t, "Game", fg="text2").grid(row=3, column=0, sticky="w", pady=px(4))
         entry = ttk.Entry(
             grid, textvariable=self.process_var, style="Mono.TEntry", font=t.fonts["mono_sm"]
         )
-        entry.grid(row=3, column=1, sticky="ew", pady=(8, 2))
-        entry.bind("<FocusOut>", lambda _e: self.save())
-        label(grid, t, "exe name, or empty to auto-detect", font="caption", fg="text3").grid(
-            row=4, column=1, sticky="w"
-        )
+        entry.grid(row=3, column=1, sticky="ew", pady=px(4))
+        entry.bind("<FocusOut>", lambda _e: self.save(), add="+")
+        entry.bind("<Return>", lambda _e: self.save(), add="+")
+        placeholder(entry, t, self.process_var, "empty = auto-detect")
         Check(sec, t, "Beep on start and stop", self.sound_var, self.save).pack(
-            anchor="w", pady=(12, 0)
+            anchor="w", pady=(px(12), 0)
         )
 
         rule(rail, t).pack(fill="x")
         foot = frame(rail, t)
-        foot.pack(side="bottom", fill="x", padx=16, pady=12)
+        foot.pack(side="bottom", fill="x", padx=px(16), pady=px(12))
         self.foot = foot
         rule(rail, t).pack(side="bottom", fill="x")
 
         head = frame(rail, t)
-        head.pack(fill="x", padx=16, pady=(14, 6))
+        head.pack(fill="x", padx=px(16), pady=(px(16), px(8)))
         silk(head, t, "Captures").pack(side="left")
         self.count_label = label(head, t, "", font="mono_xs", fg="text3")
         self.count_label.pack(side="right")
         self.list = ScrollFrame(rail, t)
-        self.list.pack(fill="both", expand=True, padx=(8, 0))
+        self.list.pack(fill="both", expand=True, padx=(px(8), px(2)))
+
+    def _paint_length(self) -> None:
+        try:
+            self.length_box.configure(state="disabled" if self.manual_var.get() else "normal")
+        except tk.TclError:
+            pass
 
     def _build_main(self, body: tk.Frame) -> None:
         t = self.t
         main = frame(body, t)
         main.pack(side="left", fill="both", expand=True)
         self.main = main
+        gutter = (px(24), px(24))
 
         self.banner = frame(main, t)
         self.header = frame(main, t)
-        self.header.pack(fill="x", padx=24, pady=(18, 10))
+        self.header.pack(fill="x", padx=gutter, pady=(px(18), px(10)))
         self.tabs = Tabs(main, t, TABS, self.show_tab)
-        self.tabs.pack(fill="x", padx=24)
-        self.tab_hint = silk(
-            self.tabs.extra, t, "Ctrl+click a second capture to compare", fg="text4"
-        )
+        self.tabs.pack(fill="x", padx=gutter)
+        self.tab_hint = silk(self.tabs.extra, t, "", fg="text4")
         self.tab_hint.pack(side="right")
 
         actions = frame(main, t)
-        actions.pack(side="bottom", fill="x", padx=24, pady=(10, 16))
+        actions.pack(side="bottom", fill="x", padx=gutter, pady=(px(10), px(16)))
         self.copy_btn = FlatButton(actions, t, "Copy report", self.copy_shown, "secondary")
         self.copy_btn.pack(side="left")
         self.folder_btn = FlatButton(actions, t, "Open folder", self.open_selected, "ghost")
-        self.folder_btn.pack(side="left", padx=(8, 0))
+        self.folder_btn.pack(side="left", padx=(px(8), 0))
         self.compare_btn = FlatButton(
             actions, t, "Compare", lambda: self.tabs.select("Compare"), "ghost"
         )
-        self.compare_btn.pack(side="left", padx=(4, 0))
+        self.compare_btn.pack(side="left", padx=(px(4), 0))
         self.note = frame(actions, t)
         self.note.pack(side="right")
 
+        # the thin scrollbar sits in the right gutter, so content keeps a 24 px edge
         self.pages = frame(main, t)
-        self.pages.pack(fill="both", expand=True, padx=24, pady=(12, 0))
+        self.pages.pack(fill="both", expand=True, padx=(px(24), px(10)), pady=(px(12), 0))
         self.page_summary = ScrollFrame(self.pages, t)
         self._build_summary(self.page_summary.inner)
-        self.page_text = frame(self.pages, t, border="border_visible")
+        self.page_text = frame(self.pages, t)
+        well = frame(self.page_text, t, border="border")
+        sb = ThinScrollbar(self.page_text, t, lambda *a: self.text.yview(*a))
+        sb.pack(side="right", fill="y", padx=(px(8), 0))
+        well.pack(side="left", fill="both", expand=True)
         self.text = tk.Text(
-            self.page_text, wrap="word", font=t.fonts["mono"], bg=t.c["background"], fg=t.c["text1"],
-            insertbackground=t.c["text1"], selectbackground=t.c["surface3"], selectforeground=t.c["text1"],
-            relief="flat", bd=0, padx=16, pady=14, highlightthickness=0, spacing1=1, spacing3=1,
+            well, wrap="word", font=t.fonts["mono_sm"], bg=t.c["background"], fg=t.c["text1"],
+            insertbackground=t.c["text1"], selectbackground=t.c["accent_subtle"],
+            selectforeground=t.c["text1"], inactiveselectbackground=t.c["surface2"],
+            relief="flat", bd=0, padx=px(16), pady=px(14), highlightthickness=0,
+            spacing1=px(2), spacing2=px(2), spacing3=px(2), cursor="arrow",
         )  # fmt: skip
-        sb = ttk.Scrollbar(self.page_text, command=self.text.yview)
         self.text.configure(yscrollcommand=sb.set)
-        sb.pack(side="right", fill="y")
-        self.text.pack(side="left", fill="both", expand=True)
-        self.text.tag_configure("head", foreground=t.c["text1"], font=t.fonts["mono"])
-        self.text.tag_configure("warn", foreground=t.c["warning"])
-        self.text.tag_configure("ok", foreground=t.c["success"])
-        self.text.tag_configure("dim", foreground=t.c["text2"])
+        self.text.pack(fill="both", expand=True)
+        self.text.bind(
+            "<MouseWheel>",
+            lambda e: (self.text.yview_scroll(wheel_steps(e) * 3, "units"), "break")[1],
+        )
+        self.text.tag_configure("head", foreground=t.c["text1"], font=t.fonts["mono_head"])
+        self.text.tag_configure("title", foreground=t.c["text1"], font=t.fonts["mono_head"])
+        self.text.tag_configure("warn", foreground=t.c["warning"], font=t.fonts["mono_head"])
+        self.text.tag_configure("ok", foreground=t.c["success"], font=t.fonts["mono_head"])
+        self.text.tag_configure("dim", foreground=t.c["text3"])
         self.page_system = ScrollFrame(self.pages, t)
         self.page_compare = ScrollFrame(self.pages, t)
         self.compare_scope: Scope | None = None
@@ -303,43 +389,45 @@ class App:
 
     def _build_summary(self, page: tk.Frame) -> None:
         t = self.t
-        # verdict
+        # verdict: headline, one sentence, and the split bar (or the capture progress)
         v = frame(page, t, "surface1", border="border")
-        v.pack(fill="x", pady=(0, 8))
+        v.pack(fill="x", pady=(0, px(8)))
         v.columnconfigure(0, weight=1)
-        self.verdict_head = label(v, t, "", font="heading", bg="surface1", anchor="w")
-        self.verdict_head.grid(row=0, column=0, sticky="w", padx=16, pady=(14, 2))
-        self.verdict_text = label(
-            v, t, "", fg="text2", bg="surface1", anchor="w", justify="left", wraplength=470
+        self.verdict_head = frame(v, t, "surface1")
+        self.verdict_head.grid(row=0, column=0, sticky="w", padx=px(16), pady=(px(14), px(4)))
+        self.verdict_text = RichText(v, t, "", font="body_sm", mono="mono_sm")
+        self.verdict_text.grid(
+            row=1, column=0, sticky="ew", padx=(px(16), px(24)), pady=(0, px(14))
         )
-        self.verdict_text.grid(row=1, column=0, sticky="w", padx=16, pady=(0, 14))
-        v.bind(
-            "<Configure>",
-            lambda e: self.verdict_text.configure(wraplength=max(240, e.width - 330 - 72)),
-        )
-        split = frame(v, t, "surface1", width=330)
-        split.grid(row=0, column=1, rowspan=2, sticky="se", padx=16, pady=16)
-        self.split = SplitBar(split, t)
-        self.split.configure(width=330)
+        side = frame(v, t, "surface1", width=px(330))
+        side.grid(row=0, column=1, rowspan=2, sticky="sew", padx=px(16), pady=px(16))
+        v.columnconfigure(1, minsize=px(330))
+        self.split_box = frame(side, t, "surface1")
+        self.split = SplitBar(self.split_box, t)
         self.split.pack(fill="x")
-        self.split_legend = frame(split, t, "surface1")
-        self.split_legend.pack(fill="x", pady=(8, 0))
+        self.split_legend = frame(self.split_box, t, "surface1")
+        self.split_legend.pack(fill="x", pady=(px(8), 0))
+        self.rec_progress = Progress(side, t)
+        self.split_box.pack(fill="x")
 
         # scope
         s = frame(page, t, "surface1", border="border")
-        s.pack(fill="x", pady=(0, 8))
+        s.pack(fill="x", pady=(0, px(8)))
         sh = frame(s, t, "surface1")
-        sh.pack(fill="x", padx=16, pady=(12, 10))
+        sh.pack(fill="x", padx=px(16), pady=(px(12), px(10)))
         self.scope_title = silk(sh, t, "Frame time", bg="surface1")
         self.scope_title.pack(side="left")
+        self.scope_scale = label(sh, t, "", font="mono_xs", fg="text3", bg="surface1")
+        self.scope_scale.pack(side="left", padx=(px(12), 0))
+        self.channel_chips: dict[str, tuple] = {}
         for key, name in (("ch3", "CH3 CPU"), ("ch2", "CH2 GPU"), ("ch1", "CH1 FRAME")):
-            self._channel_toggle(sh, key, name).pack(side="right", padx=(6, 0))
+            self._channel_toggle(sh, key, name).pack(side="right", padx=(px(6), 0))
         self.scope = Scope(s, t, height=184)
-        self.scope.pack(fill="x", padx=16, pady=(0, 16))
+        self.scope.pack(fill="x", padx=px(16), pady=(0, px(16)))
 
         # readouts
         row = frame(page, t)
-        row.pack(fill="x", pady=(0, 8))
+        row.pack(fill="x", pady=(0, px(8)))
         self.readouts: list[Readout] = []
         for i in range(5):
             row.columnconfigure(i, weight=1, uniform="ro")
@@ -349,45 +437,51 @@ class App:
                 ["Average", "1% low", "CPU-side 1% low", "PC latency", "P95 latency"][i],
                 "ch1" if i == 0 else None,
             )
-            r.grid(row=0, column=i, sticky="nsew", padx=(0 if i == 0 else 8, 0))
+            r.grid(row=0, column=i, sticky="nsew", padx=(0 if i == 0 else px(8), 0))
             self.readouts.append(r)
 
         # checks and details
         low = frame(page, t)
-        low.pack(fill="x", pady=(0, 8))
+        low.pack(fill="x", pady=(0, px(8)))
         low.columnconfigure(0, weight=4, uniform="low")
         low.columnconfigure(1, weight=3, uniform="low")
         self.checks_panel = frame(low, t, "surface1", border="border")
         self.checks_panel.grid(row=0, column=0, sticky="nsew")
         self.details_panel = frame(low, t, "surface1", border="border")
-        self.details_panel.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
+        self.details_panel.grid(row=0, column=1, sticky="nsew", padx=(px(8), 0))
 
     def _channel_toggle(self, parent, key: str, name: str) -> tk.Frame:
         t = self.t
-        f = tk.Frame(
-            parent,
-            bg=t.c["surface2"],
-            highlightthickness=1,
-            highlightbackground=t.c["text3"],
-            cursor="hand2",
-            padx=7,
-            pady=3,
-        )
-        sw = tk.Frame(f, width=8, height=8, bg=t.c[key])
-        sw.pack(side="left", padx=(0, 6))
+        f = tk.Frame(parent, highlightthickness=1, cursor="hand2", padx=px(7), pady=px(3))
+        sw = swatch(f, t, key)
+        sw.pack(side="left", padx=(0, px(6)))
         lab = label(f, t, name, font="mono_xs", bg="surface2")
         lab.pack(side="left")
+        self.channel_chips[key] = (f, sw, lab)
 
         def flip(_e=None):
-            visible = self.scope.toggle(key)
-            bg = t.c["surface2"] if visible else t.c["surface1"]
-            f.configure(bg=bg, highlightbackground=t.c["text3" if visible else "border_visible"])
-            lab.configure(bg=bg, fg=t.c["text1" if visible else "text3"])
-            sw.configure(bg=t.c[key] if visible else t.c["text4"])
+            if self.scope.has(key):
+                self.scope.toggle(key)
+                self._paint_channels()
 
         for w in (f, sw, lab):
             w.bind("<Button-1>", flip)
         return f
+
+    def _paint_channels(self) -> None:
+        """Lit when shown, dim when hidden, and inert when the capture has no data for it."""
+        c = self.t.c
+        for key, (f, sw, lab) in self.channel_chips.items():
+            has = self.scope.has(key)
+            on = has and self.scope.channels[key]
+            bg = c["surface2"] if on else c["surface1"]
+            f.configure(
+                bg=bg,
+                highlightbackground=c["text3" if on else "border_visible"],
+                cursor="hand2" if has else "arrow",
+            )
+            lab.configure(bg=bg, fg=c["text1" if on else "text3" if has else "text4"])
+            sw.configure(bg=c[key] if on else c["text4" if has else "surface3"])
 
     # --- rendering ----------------------------------------------------------------------------
 
@@ -398,7 +492,12 @@ class App:
             child.destroy()
         self.count_label.configure(text=str(len(self.captures)))
         if not self.captures:
-            label(inner, t, "Captures appear here.", fg="text3").pack(anchor="w", padx=8, pady=8)
+            box = frame(inner, t)
+            box.pack(fill="x", padx=px(8), pady=px(8))
+            label(box, t, "No captures yet.", fg="text2").pack(anchor="w")
+            label(
+                box, t, "Each capture is saved here, newest first.", font="caption", fg="text3"
+            ).pack(anchor="w", pady=(px(2), 0))
         for folder, result in self.captures:
             try:
                 level, name, meta, fps, sub = summary.rail_row(result)
@@ -412,45 +511,88 @@ class App:
         sel = folder in self.selected
         bg = "surface2" if sel else "background"
         row = tk.Frame(parent, bg=t.c[bg], cursor="hand2")
-        row.pack(fill="x", padx=(0, 8), pady=(0, 1))
+        row.pack(fill="x", pady=(0, 1))
         edge = tk.Frame(row, width=2, bg=t.c["accent"] if sel else t.c[bg])
         edge.pack(side="left", fill="y")
         if sel and len(self.selected) == 2:
-            mark = "A" if folder == self.selected[0] else "B"
-            lamp = label(row, t, mark, font="mono_xs", fg="text1", bg=bg)
-            lamp.pack(side="left", padx=(8, 10))
+            mark = "A" if folder == self.compare_pair()[0][0] else "B"
+            lamp = label(row, t, mark, font="mono_xs", fg="text1", bg=bg, width=1)
+            lamp.pack(side="left", padx=(px(8), px(10)))
         else:
             lamp = Lamp(row, t, level)
-            lamp.pack(side="left", padx=(8, 10))
+            lamp.pack(side="left", padx=(px(10), px(12)))
         mid = tk.Frame(row, bg=t.c[bg])
-        mid.pack(side="left", fill="x", expand=True, pady=8)
+        mid.pack(side="left", fill="x", expand=True, pady=px(9))
         a = label(mid, t, name, bg=bg, anchor="w")
         a.pack(fill="x")
         b = label(mid, t, meta, font="mono_xs", fg="text3", bg=bg, anchor="w")
-        b.pack(fill="x")
+        b.pack(fill="x", pady=(px(2), 0))
         right = tk.Frame(row, bg=t.c[bg])
-        right.pack(side="right", padx=(4, 8))
-        c = label(right, t, fps, font="mono_sm", bg=bg, anchor="e")
-        c.pack(fill="x")
+        right.pack(side="right", padx=(px(4), px(10)))
+        top = tk.Frame(right, bg=t.c[bg])
+        top.pack(anchor="e")
+        c = label(top, t, fps, font="mono_sm", bg=bg)
+        c.pack(side="left")
+        u = label(top, t, " FPS", font="mono_xs", fg="text3", bg=bg)
+        u.pack(side="left", anchor="s", pady=(0, 1))
         d = label(right, t, sub, font="mono_xs", fg="text3", bg=bg, anchor="e")
-        d.pack(fill="x")
-        widgets = (row, mid, right, a, b, c, d, lamp)
+        d.pack(anchor="e", pady=(px(2), 0))
+        widgets = (row, mid, right, top, a, b, c, u, d, lamp)
 
         def paint(hover: bool) -> None:
             if folder in self.selected:
                 return
-            col = t.c["surface1" if hover else "background"]
+            col = t.c["surface2" if hover else "background"]
             for w in widgets:
-                w.configure(bg=col)
+                if not isinstance(w, Lamp):
+                    w.configure(bg=col)
             edge.configure(bg=col)
 
         for w in widgets:
             w.bind("<Button-1>", lambda _e, f=folder: self.select(f, add=False))
             w.bind("<Control-Button-1>", lambda _e, f=folder: self.select(f, add=True))
+            w.bind("<Shift-Button-1>", lambda _e, f=folder: self.select(f, add=True))
             w.bind("<Double-1>", lambda _e, f=folder: _open(f))
-            if not isinstance(w, Lamp):
-                w.bind("<Enter>", lambda _e: paint(True), add="+")
-                w.bind("<Leave>", lambda _e: paint(False), add="+")
+            w.bind("<Button-3>", lambda e, f=folder: self._row_menu(e, f))
+            w.bind("<Enter>", lambda _e: paint(True), add="+")
+            w.bind("<Leave>", lambda _e: paint(False), add="+")
+
+    def _row_menu(self, event, folder: Path) -> None:
+        t = self.t
+        m = tk.Menu(
+            self.root, tearoff=0, bg=t.c["surface1"], fg=t.c["text1"], bd=1, relief="flat",
+            activebackground=t.c["surface2"], activeforeground=t.c["text1"],
+            disabledforeground=t.c["text4"], font=t.fonts["body_sm"], activeborderwidth=0,
+        )  # fmt: skip
+        other = [f for f in self.selected if f != folder]
+        m.add_command(label="Open folder", command=lambda: _open(folder))
+        m.add_command(label="Copy report", command=lambda: self._copy_report_of(folder))
+        m.add_separator()
+        m.add_command(
+            label="Compare with selected",
+            command=lambda: self._compare_with(folder),
+            state="normal" if other else "disabled",
+        )
+        try:
+            m.tk_popup(event.x_root, event.y_root)
+        finally:
+            m.grab_release()
+
+    def _compare_with(self, folder: Path) -> None:
+        other = [f for f in self.selected if f != folder]
+        if other:
+            self.selected = [other[-1], folder]
+            self.render_rail()
+            self.render_main()
+            self.tabs.select("Compare")
+
+    def _copy_report_of(self, folder: Path) -> None:
+        try:
+            text = report.render(self.result_for(folder))
+        except StopIteration:
+            return
+        self._to_clipboard(text)
+        self.show_note("Report copied to the clipboard.", f"{len(text):,} chars")
 
     def _render_foot(self) -> None:
         t = self.t
@@ -458,22 +600,16 @@ class App:
             child.destroy()
         for level, name, value in (self.pm_status, self.trace_status):
             r = frame(self.foot, t)
-            r.pack(fill="x", pady=2)
-            Lamp(r, t, level).pack(side="left", padx=(0, 8))
+            r.pack(fill="x", pady=px(2))
+            Lamp(r, t, level).pack(side="left", padx=(0, px(8)))
             label(r, t, name, font="caption", fg="text2").pack(side="left")
             label(r, t, value, font="mono_xs", fg="text3").pack(side="right")
         line = self.system_line()
         if line:
             label(
-                self.foot,
-                t,
-                line,
-                font="mono_xs",
-                fg="text3",
-                wraplength=260,
-                justify="left",
-                anchor="w",
-            ).pack(fill="x", pady=(8, 0))
+                self.foot, t, line, font="mono_xs", fg="text3", wraplength=px(260),
+                justify="left", anchor="w",
+            ).pack(fill="x", pady=(px(8), 0))  # fmt: skip
 
     def system_line(self) -> str:
         info = self.system
@@ -493,49 +629,58 @@ class App:
         disp = info.main_display
         if disp:
             parts.append(f"{disp.width}x{disp.height} @ {disp.refresh_hz} Hz")
-        return " · ".join(p for p in parts if p)
+        # one fact per line, like a spec plate: CPU, GPU, RAM, display
+        return "\n".join(p for p in parts if p)
 
     def render_setup(self) -> None:
         t = self.t
         for child in self.banner.winfo_children():
             child.destroy()
         issue = self.setup_issue or (
-            ("error", self.capture_error, []) if self.capture_error else None
+            ("error", self.capture_error, [("Dismiss", self.dismiss_error)])
+            if self.capture_error
+            else None
         )
         if not issue:
             self.banner.pack_forget()
             return
         level, text, buttons = issue
-        bgkey = {"error": "error_bg", "warn": "warning_bg"}.get(level, "surface2")
+        bgkey = {"error": "error_bg", "warn": "warning_bg"}.get(level, "surface1")
+        fgkey = {"error": "error", "warn": "warning"}.get(level, "text3")
         box = tk.Frame(
             self.banner,
             bg=t.c[bgkey],
             highlightthickness=1,
-            highlightbackground=theme.mix(
-                t.c[{"error": "error", "warn": "warning"}.get(level, "text3")], t.c[bgkey], 0.4
-            ),
+            highlightbackground=theme.mix(t.c[fgkey], t.c[bgkey], 0.4),
         )
         box.pack(fill="x")
-        Lamp(box, t, level).pack(side="left", padx=(16, 12))
-        label(box, t, text, bg=bgkey, justify="left", anchor="w", wraplength=560).pack(
-            side="left", fill="x", expand=True, pady=12
-        )
+        Lamp(box, t, level).pack(side="left", anchor="n", padx=(px(16), px(12)), pady=(px(17), 0))
+        msg = RichText(box, t, text, font="body_sm", mono="mono_sm", fg="text1", bg=bgkey)
         for name, cmd in reversed(buttons):
-            FlatButton(box, t, name, cmd, "secondary", small=True).pack(side="right", padx=(0, 12))
-        self.banner.pack(fill="x", padx=24, pady=(16, 0), before=self.header)
+            FlatButton(box, t, name, cmd, "secondary", small=True).pack(
+                side="right", padx=(0, px(12)), pady=px(8)
+            )
+        msg.pack(side="left", fill="x", expand=True, pady=px(12), padx=(0, px(12)))
+        self.banner.pack(fill="x", padx=px(24), pady=(px(16), 0), before=self.header)
+
+    def dismiss_error(self) -> None:
+        self.capture_error = None
+        self.render_setup()
 
     def render_main(self) -> None:
         """Header, summary and tabs for the selected capture (or the empty/recording view)."""
         for child in self.header.winfo_children():
             child.destroy()
         result = self.current_result()
-        recording = self.recorder is not None and self.recorder.state in (
-            "recording",
-            "stopping",
-            "analyzing",
-        )
-        if recording:
-            self._header("REC", "Recording", self.record_info.get("sub", ""), [])
+        state = self.recorder.state if self.recorder else "idle"
+        busy = state in ("recording", "stopping", "analyzing")
+        if busy:
+            self._header(
+                "REC",
+                "Recording" if state == "recording" else "Analyzing",
+                self.record_info.get("sub", ""),
+                [],
+            )
         elif result:
             cap = result["capture"]
             self._header(
@@ -551,63 +696,90 @@ class App:
         self.tabs.set_disabled("Compare", not two)
         self.tabs.set_disabled("Report", not result)
         self.tabs.set_disabled("System", not result)
-        self.tab_hint.configure(text="" if two else "CTRL+CLICK A SECOND CAPTURE TO COMPARE")
-        self.compare_btn.set_enabled(two)
-        self.folder_btn.set_enabled(bool(result))
+        if not self.captures:
+            hint = ""
+        elif two:
+            hint = "Ctrl+click a selected capture to leave the comparison"
+        else:
+            hint = "Ctrl+click a second capture to compare"
+        set_silk(self.tab_hint, hint)
+        self.folder_btn.set_enabled(True)
         self.copy_btn.set_enabled(bool(result))
         if self.tabs.current not in ("Summary",) and (
             not result or (self.tabs.current == "Compare" and not two)
         ):
             self.tabs.select("Summary", notify=False)
-        self.fill_summary(result, recording)
+        self.fill_summary(result, state if busy else None)
         self.show_tab(self.tabs.current)
 
     def _header(self, initials: str, title: str, sub: str, tags: list[str]) -> None:
         t = self.t
-        av = label(
-            self.header, t, initials, font="mono_sm", fg="text2", bg="surface2", width=4, height=2
-        )
-        av.configure(highlightthickness=1, highlightbackground=t.c["border"])
-        av.pack(side="left", padx=(0, 12))
+        av = frame(self.header, t, "surface2", border="border", width=px(36), height=px(36))
+        av.pack_propagate(False)
+        av.pack(side="left", padx=(0, px(12)))
+        label(av, t, initials, font="mono_sm", fg="text2", bg="surface2").pack(expand=True)
+        for tag in reversed(tags):  # packed before the title, so a narrow window clips the title
+            label(
+                self.header, t, tag, font="mono_xs", fg="text2", bg="surface2", padx=px(7),
+                pady=px(3),
+            ).pack(side="right", padx=(px(6), 0))  # fmt: skip
         mid = frame(self.header, t)
         mid.pack(side="left", fill="x", expand=True)
         label(mid, t, title, font="subheading", anchor="w").pack(fill="x")
-        label(mid, t, sub, font="mono_xs", fg="text3", anchor="w").pack(fill="x", pady=(2, 0))
-        for tag in reversed(tags):
-            label(
-                self.header, t, tag, font="mono_xs", fg="text2", bg="surface2", padx=7, pady=3
-            ).pack(side="right", padx=(6, 0))
+        label(mid, t, sub, font="mono_xs", fg="text3", anchor="w").pack(fill="x", pady=(px(2), 0))
 
-    def fill_summary(self, result: dict | None, recording: bool) -> None:
+    def _set_verdict(self, head: str, sentence: str) -> None:
+        self.headline = summary.plain(head)
+        for child in self.verdict_head.winfo_children():
+            child.destroy()
+        self._rich(self.verdict_head, head, "heading", "readout", "text1", "text1").pack(anchor="w")
+        self.verdict_text.set(sentence)
+
+    def _show_split(self, recording: bool) -> None:
+        if recording:
+            self.split_box.pack_forget()
+            self.rec_progress.pack(fill="x")
+        else:
+            self.rec_progress.pack_forget()
+            self.split_box.pack(fill="x")
+
+    def fill_summary(self, result: dict | None, busy: str | None) -> None:
         t = self.t
         for child in self.split_legend.winfo_children():
             child.destroy()
-        if recording:
+        if busy:
             key = self.hotkey_var.get()
-            self.verdict_head.configure(text="Recording.")
             length = self.recorder.length_s if self.recorder else None
-            self.verdict_text.configure(
-                text=f"Play normally. Press {key} to stop"
-                + (f", or wait for {length} s." if length else ".")
-            )
-            self.split.set(0, 0, 0)
+            if busy == "recording":
+                self._set_verdict(
+                    "Recording.",
+                    f"Play normally. Press {key} to stop"
+                    + (f", or wait for {length} s." if length else "."),
+                )
+            else:
+                self._set_verdict("Analyzing.", "Stopping PresentMon and reading the frames.")
+            self._show_split(True)
+            self.update_recording()
             for r in self.readouts:
-                r.set(None, "", "recording")
+                r.set(None, "", "recording" if busy == "recording" else "analyzing")
             self._fill_checks([], "Checks run when the capture ends.")
             self._fill_details([])
-            self.scope_title.configure(text="FRAME TIME · LIVE")
+            set_silk(self.scope_title, "Frame time · live")
+            self.scope_scale.configure(text="")
+            self._paint_channels()
             return
+        self._show_split(False)
         if not result:
             key = self.hotkey_var.get()
-            self.verdict_head.configure(text="No captures yet.")
             length = (
                 "until you press it again"
                 if self.manual_var.get()
                 else f"for {self.length_seconds()} s"
             )
-            self.verdict_text.configure(
-                text=f"Start a game, press {key} and play normally. Frametrace records {length}, "
-                "then shows the verdict here and copies the report to your clipboard."
+            self._set_verdict(
+                "No captures yet.",
+                f"Start a game, press {key} and play normally. Frametrace records {length}, "
+                "then shows the verdict here and copies the report to your clipboard.",
             )
             self.split.set(0, 0, 0)
             for r in self.readouts:
@@ -615,15 +787,17 @@ class App:
             self.scope.show(None, "NO CAPTURES YET")
             self._fill_checks(
                 [],
-                "Play the same scene each time (a benchmark map, replay or fixed route) so captures compare.",
+                "Play the same scene each time (a benchmark map, replay or fixed route) so "
+                "captures compare.",
             )
             self._fill_details([])
-            self.scope_title.configure(text="FRAME TIME")
+            set_silk(self.scope_title, "Frame time")
+            self.scope_scale.configure(text="")
+            self._paint_channels()
             return
 
         head, sentence = summary.verdict(result)
-        self.verdict_head.configure(text=head)
-        self.verdict_text.configure(text=sentence)
+        self._set_verdict(head, sentence)
         b = result["analysis"]["bottleneck"]
         if b.get("available"):
             self.split.set(b["gpu_pct"], b["cpu_pct"], b["wait_pct"])
@@ -633,21 +807,44 @@ class App:
                 ("text4", "Waiting", b["wait_pct"]),
             ):
                 item = frame(self.split_legend, t, "surface1")
-                item.pack(side="left", padx=(0, 14))
-                tk.Frame(item, width=8, height=8, bg=t.c[key]).pack(side="left", padx=(0, 6))
+                item.pack(side="left", padx=(0, px(14)))
+                swatch(item, t, key).pack(side="left", padx=(0, px(6)))
                 label(item, t, name, font="caption", fg="text3", bg="surface1").pack(side="left")
                 label(item, t, f"{pct:.0f}%", font="mono_xs", bg="surface1").pack(
-                    side="left", padx=(4, 0)
+                    side="left", padx=(px(4), 0)
                 )
         else:
             self.split.set(0, 0, 0)
+            silk(self.split_legend, t, "No GPU busy data", bg="surface1", fg="text4").pack(
+                side="left"
+            )
         for r, v in zip(self.readouts, summary.readouts(result), strict=True):
             r.set(v.value, v.unit, v.sub, title=v.title)
-        dur = result["analysis"]["stats"]["duration_s"]
-        self.scope_title.configure(text=f"FRAME TIME · {dur:.0f} S")
+        set_silk(self.scope_title, "Frame time")
         self._fill_checks(result.get("checks", []), "")
         self._fill_details(summary.details(result))
         self.load_trace()
+
+    def update_recording(self) -> None:
+        """Progress bar, top line and scope sweep while a capture runs."""
+        rec = self.recorder
+        if not rec or rec.state not in ("recording", "stopping", "analyzing"):
+            return
+        key = self.hotkey_var.get() or "the hotkey"
+        if rec.state != "recording":
+            self.rec_progress.set(1.0, "ANALYZING", "reading frames")
+            self.scope.recording(1.0, "ANALYZING · READING THE FRAMES")
+            return
+        elapsed, length = rec.elapsed(), rec.length_s
+        if length:
+            left = max(0.0, length - elapsed)
+            self.rec_progress.set(
+                elapsed / length, f"{_clock(elapsed)} / {_clock(length)}", f"{_clock(left)} left"
+            )
+            self.scope.recording(elapsed / length, "RECORDING · THE TRACE APPEARS WHEN IT ENDS")
+        else:
+            self.rec_progress.set(None, f"{_clock(elapsed)} elapsed", f"manual · {key} stops")
+            self.scope.recording(elapsed / 10, "RECORDING · THE TRACE APPEARS WHEN IT ENDS")
 
     def _fill_checks(self, checks: list[dict], empty: str) -> None:
         t = self.t
@@ -655,7 +852,7 @@ class App:
         for child in p.winfo_children():
             child.destroy()
         head = frame(p, t, "surface1")
-        head.pack(fill="x", padx=16, pady=(12, 8))
+        head.pack(fill="x", padx=px(16), pady=(px(12), px(8)))
         silk(head, t, "Checks", bg="surface1").pack(side="left")
         if checks:
             ok = sum(1 for c in checks if c["level"] == "ok")
@@ -664,28 +861,17 @@ class App:
                 head, t, f"{ok} ok · {warn} to look at", font="mono_xs", fg="text3", bg="surface1"
             ).pack(side="right")
         if not checks:
-            label(
-                p, t, empty, fg="text3", bg="surface1", wraplength=420, justify="left", anchor="w"
-            ).pack(fill="x", padx=16, pady=(0, 14))
+            RichText(p, t, empty, fg="text3").pack(fill="x", padx=px(16), pady=(0, px(14)))
             return
         order = {"warn": 0, "info": 1, "ok": 2}
         for i, c in enumerate(sorted(checks, key=lambda c: order.get(c["level"], 3))):
             if i:
-                rule(p, t).pack(fill="x", padx=16)
+                rule(p, t).pack(fill="x", padx=px(16))
             r = frame(p, t, "surface1")
-            r.pack(fill="x", padx=16, pady=6)
-            Lamp(r, t, c["level"]).pack(side="left", anchor="n", pady=(5, 0), padx=(0, 10))
-            label(
-                r,
-                t,
-                c["text"],
-                fg="text2",
-                bg="surface1",
-                wraplength=400,
-                justify="left",
-                anchor="w",
-            ).pack(side="left", fill="x", expand=True)
-        frame(p, t, "surface1", height=8).pack()
+            r.pack(fill="x", padx=px(16), pady=px(7))
+            Lamp(r, t, c["level"]).pack(side="left", anchor="n", pady=(px(6), 0), padx=(0, px(10)))
+            RichText(r, t, c["text"]).pack(side="left", fill="x", expand=True)
+        frame(p, t, "surface1", height=px(8)).pack()
 
     def _fill_details(self, rows: list[tuple[str, str]]) -> None:
         t = self.t
@@ -693,18 +879,24 @@ class App:
         for child in p.winfo_children():
             child.destroy()
         head = frame(p, t, "surface1")
-        head.pack(fill="x", padx=16, pady=(12, 8))
+        head.pack(fill="x", padx=px(16), pady=(px(12), px(8)))
         silk(head, t, "Details", bg="surface1").pack(side="left")
         label(head, t, "presenting thread", font="mono_xs", fg="text3", bg="surface1").pack(
             side="right"
         )
+        if not rows:
+            label(p, t, "---", font="mono_sm", fg="text4", bg="surface1").pack(
+                anchor="w", padx=px(16), pady=(0, px(14))
+            )
         for i, (k, v) in enumerate(rows):
             if i:
-                rule(p, t).pack(fill="x", padx=16)
+                rule(p, t).pack(fill="x", padx=px(16))
             r = frame(p, t, "surface1")
-            r.pack(fill="x", padx=16, pady=6)
+            r.pack(fill="x", padx=px(16), pady=px(7))
             label(r, t, k, fg="text2", bg="surface1").pack(side="left")
-            label(r, t, v, font="mono_sm", bg="surface1").pack(side="right")
+            label(
+                r, t, v, font="mono_sm", fg="text1" if v != "n/a" else "text4", bg="surface1"
+            ).pack(side="right")
 
     def show_tab(self, name: str) -> None:
         self.shown = name
@@ -727,6 +919,7 @@ class App:
             self.page_system.pack(fill="both", expand=True)
             self.shown_text = report.render(result)
         self.copy_btn.set_text("Copy comparison" if name == "Compare" else "Copy report")
+        self.compare_btn.set_enabled(len(self.selected) == 2 and name != "Compare")
 
     def compare_pair(self) -> list[tuple[Path, dict]]:
         """The two selected captures, older first: A is the reference, B the new run."""
@@ -741,90 +934,108 @@ class App:
 
         # capture chips: A is the stored reference, B the live trace
         chips = frame(page, t)
-        chips.pack(fill="x", pady=(0, 8))
+        chips.pack(fill="x", pady=(0, px(8)))
         chips.columnconfigure(0, weight=1, uniform="chip")
         chips.columnconfigure(1, weight=1, uniform="chip")
-        for col, (name, res, swatch, role) in enumerate(
+        for col, (name, res, key, role) in enumerate(
             (("A", a, "ref", "Reference"), ("B", b, "ch1", "New run"))
         ):
             chip = frame(chips, t, "surface1", border="border")
-            chip.grid(row=0, column=col, sticky="nsew", padx=(0, 8) if col == 0 else 0)
+            chip.grid(row=0, column=col, sticky="nsew", padx=(0, px(8)) if col == 0 else 0)
             head = frame(chip, t, "surface1")
-            head.pack(fill="x", padx=14, pady=(12, 4))
-            tk.Frame(head, width=8, height=8, bg=t.c[swatch]).pack(side="left", padx=(0, 8))
+            head.pack(fill="x", padx=px(16), pady=(px(12), px(6)))
+            swatch(head, t, key).pack(side="left", padx=(0, px(8)))
             silk(head, t, f"{name} · {role}", bg="surface1").pack(side="left")
             cap, s = res["capture"], res["analysis"]["stats"]
-            label(chip, t, cap["app"], bg="surface1", anchor="w").pack(fill="x", padx=14)
-            meta = f"{summary.when(cap.get('started'))} · {s['duration_s']:.0f} s · {s['avg_fps']:.1f} FPS"
-            label(chip, t, meta, font="mono_xs", fg="text3", bg="surface1", anchor="w").pack(
-                fill="x", padx=14, pady=(2, 12)
-            )
+            line = frame(chip, t, "surface1")
+            line.pack(fill="x", padx=px(16))
+            label(line, t, cap["app"], bg="surface1").pack(side="left")
+            label(line, t, f"{s['avg_fps']:.1f}", font="mono_sm", bg="surface1").pack(side="right")
+            meta = f"{summary.when(cap.get('started'))} · {s['duration_s']:.0f} s · {s['frames']:,} frames"
+            row2 = frame(chip, t, "surface1")
+            row2.pack(fill="x", padx=px(16), pady=(px(2), px(12)))
+            label(row2, t, meta, font="mono_xs", fg="text3", bg="surface1").pack(side="left")
+            label(row2, t, "avg FPS", font="mono_xs", fg="text3", bg="surface1").pack(side="right")
 
         # verdict
         head, items, notes = summary.compare_verdict(a, b)
         v = frame(page, t, "surface1", border="border")
-        v.pack(fill="x", pady=(0, 8))
+        v.pack(fill="x", pady=(0, px(8)))
         self._rich(v, head, "heading", "readout", "text1", "text1").pack(
-            anchor="w", padx=16, pady=(14, 8)
+            anchor="w", padx=px(16), pady=(px(14), px(10))
         )
         for status, phrase in items:
             r = frame(v, t, "surface1")
-            r.pack(fill="x", padx=16, pady=(0, 6))
+            r.pack(fill="x", padx=px(16), pady=(0, px(6)))
             level, word = {"better": ("ok", "Better"), "worse": ("warn", "Worse")}.get(
                 status, ("idle", "Same")
             )
-            Lamp(r, t, level).pack(side="left", anchor="n", pady=(5, 0), padx=(0, 8))
-            silk(r, t, word, bg="surface1", fg="text1", width=7, anchor="w").pack(
-                side="left", anchor="n", pady=(2, 0)
+            Lamp(r, t, level).pack(side="left", anchor="n", pady=(px(5), 0), padx=(0, px(8)))
+            silk(r, t, word, bg="surface1", fg="text1", width=8, anchor="w").pack(
+                side="left", anchor="n", pady=(px(2), 0)
             )
             self._rich(r, phrase, "body_sm", "mono_sm", "text2", "text1").pack(side="left")
         for note in notes:
             r = frame(v, t, "surface1")
-            r.pack(fill="x", padx=16, pady=(0, 6))
-            Lamp(r, t, "info").pack(side="left", padx=(0, 8))
-            label(r, t, note, font="caption", fg="text3", bg="surface1").pack(side="left")
-        frame(v, t, "surface1", height=8).pack()
+            r.pack(fill="x", padx=px(16), pady=(0, px(6)))
+            Lamp(r, t, "info").pack(side="left", anchor="n", pady=(px(5), 0), padx=(0, px(8)))
+            RichText(r, t, note, font="caption", mono="mono_xs", fg="text3", mono_fg="text2").pack(
+                side="left", fill="x", expand=True
+            )
+        frame(v, t, "surface1", height=px(8)).pack()
 
         # scope: REF A under CH1 B
         sp = frame(page, t, "surface1", border="border")
-        sp.pack(fill="x", pady=(0, 8))
+        sp.pack(fill="x", pady=(0, px(8)))
         sh = frame(sp, t, "surface1")
-        sh.pack(fill="x", padx=16, pady=(12, 10))
+        sh.pack(fill="x", padx=px(16), pady=(px(12), px(10)))
         silk(sh, t, "Frame time · A vs B", bg="surface1").pack(side="left")
+        self.compare_scale = label(sh, t, "", font="mono_xs", fg="text3", bg="surface1")
+        self.compare_scale.pack(side="left", padx=(px(12), 0))
         for key, name in (("ch1", "CH1 B"), ("ref", "REF A")):
             chip = tk.Frame(
                 sh,
                 bg=t.c["surface2"],
                 highlightthickness=1,
                 highlightbackground=t.c["text3"],
-                padx=7,
-                pady=3,
+                padx=px(7),
+                pady=px(3),
             )
-            chip.pack(side="right", padx=(6, 0))
-            tk.Frame(chip, width=8, height=8, bg=t.c[key]).pack(side="left", padx=(0, 6))
+            chip.pack(side="right", padx=(px(6), 0))
+            swatch(chip, t, key).pack(side="left", padx=(0, px(6)))
             label(chip, t, name, font="mono_xs", bg="surface2").pack(side="left")
         self.compare_scope = Scope(sp, t, height=184)
         self.compare_scope.channels.update(ch2=False, ch3=False)
-        self.compare_scope.pack(fill="x", padx=16, pady=(0, 16))
+        self.compare_scope.pack(fill="x", padx=px(16), pady=(0, px(16)))
         self.compare_folders = (fa, fb)
         self.draw_compare_scope()
 
         # deltas
         d = frame(page, t, "surface1", border="border")
-        d.pack(fill="x", pady=(0, 8))
+        d.pack(fill="x", pady=(0, px(8)))
         dh = frame(d, t, "surface1")
-        dh.pack(fill="x", padx=16, pady=(12, 4))
+        dh.pack(fill="x", padx=px(16), pady=(px(12), px(4)))
         silk(dh, t, "Changes from A to B", bg="surface1").pack(side="left")
         label(
             dh, t, "SAME = inside run-to-run noise", font="mono_xs", fg="text3", bg="surface1"
         ).pack(side="right")
         grid = frame(d, t, "surface1")
-        grid.pack(fill="x", padx=16, pady=(0, 12))
+        grid.pack(fill="x", padx=px(16), pady=(0, px(12)))
         grid.columnconfigure(0, weight=1)
+        heads = ("A", "B", "", "Change", "")
         row = 0
+        for col, text in enumerate(heads, start=1):
+            if text:
+                silk(grid, t, text, bg="surface1", fg="text4", anchor="e").grid(
+                    row=row,
+                    column=col,
+                    sticky="e" if col != 5 else "w",
+                    padx=(0, px(16) if col == 2 else px(12) if col == 4 else 0),
+                )
+        row += 1
         for group, deltas in summary.compare_deltas(a, b):
             silk(grid, t, group, bg="surface1", fg="text4").grid(
-                row=row, column=0, columnspan=6, sticky="w", pady=(12, 4)
+                row=row, column=0, columnspan=6, sticky="w", pady=(px(12), px(4))
             )
             row += 1
             for i, delta in enumerate(deltas):
@@ -836,40 +1047,52 @@ class App:
 
         # where the frames went
         bn = frame(page, t, "surface1", border="border")
-        bn.pack(fill="x", pady=(0, 8))
+        bn.pack(fill="x", pady=(0, px(8)))
         silk(bn, t, "Where the frames waited", bg="surface1").pack(
-            anchor="w", padx=16, pady=(12, 8)
+            anchor="w", padx=px(16), pady=(px(12), px(10))
         )
         for name, res in (("A", a), ("B", b)):
             bk = res["analysis"]["bottleneck"]
             r = frame(bn, t, "surface1")
-            r.pack(fill="x", padx=16, pady=(0, 10))
+            r.pack(fill="x", padx=px(16), pady=(0, px(10)))
             label(r, t, name, font="mono_sm", fg="text2", bg="surface1", width=2, anchor="w").pack(
                 side="left"
             )
             if bk.get("available"):
-                parts = f"GPU {bk['gpu_pct']:.0f}% · CPU {bk['cpu_pct']:.0f}% · waiting {bk['wait_pct']:.0f}%"
-                label(
-                    r, t, parts, font="mono_xs", fg="text3", bg="surface1", width=34, anchor="e"
-                ).pack(side="right")
+                legend = frame(r, t, "surface1")
+                legend.pack(side="right")
+                for key, word, pct in (
+                    ("ch2", "GPU", bk["gpu_pct"]),
+                    ("ch3", "CPU", bk["cpu_pct"]),
+                    ("text4", "waiting", bk["wait_pct"]),
+                ):
+                    swatch(legend, t, key).pack(side="left", padx=(px(12), px(5)))
+                    label(legend, t, word, font="caption", fg="text3", bg="surface1").pack(
+                        side="left"
+                    )
+                    label(
+                        legend, t, f"{pct:.0f}%", font="mono_xs", bg="surface1", width=4, anchor="e"
+                    ).pack(side="left", padx=(px(4), 0))
                 bar = SplitBar(r, t)
-                bar.pack(side="left", fill="x", expand=True, padx=(8, 16))
+                bar.pack(side="left", fill="x", expand=True, padx=(px(8), px(8)))
                 bar.set(bk["gpu_pct"], bk["cpu_pct"], bk["wait_pct"])
             else:
                 label(r, t, "no GPU busy data", font="mono_xs", fg="text3", bg="surface1").pack(
-                    side="left", padx=8
+                    side="left", padx=px(8)
                 )
-        frame(bn, t, "surface1", height=4).pack()
+        frame(bn, t, "surface1", height=px(4)).pack()
 
         # system changes
         sy = frame(page, t, "surface1", border="border")
-        sy.pack(fill="x", pady=(0, 8))
-        silk(sy, t, "System changes", bg="surface1").pack(anchor="w", padx=16, pady=(12, 8))
+        sy.pack(fill="x", pady=(0, px(8)))
+        silk(sy, t, "System changes", bg="surface1").pack(
+            anchor="w", padx=px(16), pady=(px(12), px(8))
+        )
         changes = summary.system_changes(a, b)
         if not changes:
             r = frame(sy, t, "surface1")
-            r.pack(fill="x", padx=16, pady=(0, 14))
-            Lamp(r, t, "ok").pack(side="left", padx=(0, 10))
+            r.pack(fill="x", padx=px(16), pady=(0, px(14)))
+            Lamp(r, t, "ok").pack(side="left", padx=(0, px(10)))
             label(
                 r,
                 t,
@@ -877,28 +1100,37 @@ class App:
                 fg="text2",
                 bg="surface1",
             ).pack(side="left")
+        key_w = self._silk_width(name for name, _, _ in changes) + px(24)
         for i, (name, va, vb) in enumerate(changes):
             if i:
-                rule(sy, t).pack(fill="x", padx=16)
+                rule(sy, t).pack(fill="x", padx=px(16))
             r = frame(sy, t, "surface1")
-            r.pack(fill="x", padx=16, pady=6)
-            Lamp(r, t, "info").pack(side="left", padx=(0, 10))
-            label(r, t, name, fg="text2", bg="surface1", width=16, anchor="w").pack(side="left")
+            r.pack(fill="x", padx=px(16), pady=px(7))
+            Lamp(r, t, "info").pack(side="left", padx=(0, px(10)))
+            cell = frame(r, t, "surface1", width=key_w, height=px(16))
+            cell.pack(side="left")
+            cell.pack_propagate(False)
+            silk(cell, t, name, bg="surface1", anchor="w").pack(side="left")
             label(r, t, va, font="mono_sm", fg="text3", bg="surface1").pack(side="left")
-            label(r, t, "  to  ", font="caption", fg="text4", bg="surface1").pack(side="left")
+            label(r, t, "  →  ", font="mono_sm", fg="text4", bg="surface1").pack(side="left")
             label(r, t, vb, font="mono_sm", bg="surface1").pack(side="left")
         if changes:
-            frame(sy, t, "surface1", height=6).pack()
+            frame(sy, t, "surface1", height=px(6)).pack()
         self.page_compare.to_top()
 
+    def _silk_width(self, names) -> int:
+        """Widest silk-screen label among names, in pixels (column for label/value rows)."""
+        font = self.t.fonts["label"]
+        return max((font.measure(track(str(n).upper())) for n in names), default=0)
+
     def _rich(self, parent, text: str, font: str, mono: str, fg: str, mono_fg: str) -> tk.Frame:
-        """One line with words in Plex Sans and the `ticked` numbers in Plex Mono."""
+        """One line with words in Plex Sans and the numbers in Plex Mono."""
         t, bg = self.t, parent.cget("bg")
         line = tk.Frame(parent, bg=bg)
-        for part, is_num in summary.runs(text):
+        for part, is_num in summary.number_runs(text):
             tk.Label(
                 line,
-                text=part,
+                text=part.replace(" ", "\u00a0") if is_num else part,
                 font=t.fonts[mono if is_num else font],
                 fg=t.c[mono_fg if is_num else fg],
                 bg=bg,
@@ -919,23 +1151,17 @@ class App:
         }.get(status, ("idle", "N/A"))
         unit = f" {d.unit}" if d.unit != "%" else "%"
         label(grid, t, d.label, fg="text2", bg="surface1", anchor="w").grid(
-            row=row, column=0, sticky="w", pady=6
+            row=row, column=0, sticky="w", pady=px(6)
         )
         label(
-            grid,
-            t,
-            d.fmt(d.a) + unit,
-            font="mono_sm",
-            fg="text3",
-            bg="surface1",
-            anchor="e",
+            grid, t, d.fmt(d.a) + unit, font="mono_sm", fg="text3", bg="surface1", anchor="e",
             width=11,
-        ).grid(row=row, column=1, sticky="e")
+        ).grid(row=row, column=1, sticky="e")  # fmt: skip
         label(grid, t, d.fmt(d.b) + unit, font="mono_sm", bg="surface1", anchor="e", width=11).grid(
-            row=row, column=2, sticky="e", padx=(8, 16)
+            row=row, column=2, sticky="e", padx=(px(8), px(16))
         )
         span = 1.0 if d.absolute else 25.0
-        DeltaBar(grid, t, d.change, status, span=span).grid(row=row, column=3, sticky="ew")
+        DeltaBar(grid, t, d.change, status, span=span).grid(row=row, column=3)
         label(
             grid,
             t,
@@ -945,17 +1171,17 @@ class App:
             bg="surface1",
             anchor="e",
             width=9,
-        ).grid(row=row, column=4, sticky="e", padx=(12, 12))
+        ).grid(row=row, column=4, sticky="e", padx=(px(12), px(12)))
         cell = frame(grid, t, "surface1")
         cell.grid(row=row, column=5, sticky="w")
-        Lamp(cell, t, level).pack(side="left", padx=(0, 6))
+        Lamp(cell, t, level).pack(side="left", padx=(0, px(6)))
         silk(
             cell,
             t,
             word,
             bg="surface1",
             fg="text1" if status in ("better", "worse") else "text3",
-            width=8,
+            width=9,
             anchor="w",
         ).pack(side="left")
 
@@ -974,22 +1200,31 @@ class App:
                 self.compare_scope.show(tb, ref=ta)
         else:
             self.compare_scope.show(None, "READING FRAMES")
+        try:
+            self.compare_scale.configure(text=self.compare_scope.scale_text())
+        except (AttributeError, tk.TclError):
+            pass
 
     def set_text(self, text: str) -> None:
+        """The report, as copied: section heads brighter, status markers coloured."""
         self.text.configure(state="normal")
         self.text.delete("1.0", "end")
-        for line in text.splitlines():
-            tag = ()
-            if line.startswith(("## ", "Frametrace report", "Frametrace compare")):
-                tag = ("head",)
-            elif line.startswith("[!]"):
-                tag = ("warn",)
-            elif line.startswith("[ok]"):
-                tag = ("ok",)
+        for i, line in enumerate(text.splitlines()):
+            if i == 0 or line.startswith(("Frametrace report", "Frametrace compare")):
+                self.text.insert("end", line + "\n", ("title",))
+            elif line.startswith("## "):
+                self.text.insert("end", line + "\n", ("head",))
+            elif line.startswith(("[!]", "[ok]")):
+                marker, _, rest = line.partition("]")
+                tag = "warn" if marker == "[!" else "ok"
+                self.text.insert("end", marker + "]", (tag,))
+                self.text.insert("end", rest + "\n")
             elif line.startswith(("(", "Detected via")):
-                tag = ("dim",)
-            self.text.insert("end", line + "\n", tag)
+                self.text.insert("end", line + "\n", ("dim",))
+            else:
+                self.text.insert("end", line + "\n")
         self.text.configure(state="disabled")
+        self.text.yview_moveto(0)
         self.shown_text = text
 
     def fill_system(self, result: dict) -> None:
@@ -997,23 +1232,35 @@ class App:
         inner = self.page_system.inner
         for child in inner.winfo_children():
             child.destroy()
-        box = frame(inner, t, "surface1", border="border")
-        box.pack(fill="x")
-        silk(box, t, "System at capture time", bg="surface1").pack(
-            anchor="w", padx=16, pady=(12, 8)
-        )
-        for i, (k, v) in enumerate(
-            summary.system_rows(report.render_system(result.get("system") or {}))
-        ):
-            if i:
-                rule(box, t).pack(fill="x", padx=16)
-            r = frame(box, t, "surface1")
-            r.pack(fill="x", padx=16, pady=7)
-            label(r, t, k, fg="text3", bg="surface1", width=10, anchor="w").pack(side="left")
-            label(
-                r, t, v, font="mono_sm", bg="surface1", anchor="w", justify="left", wraplength=640
-            ).pack(side="left", fill="x", expand=True)
-        frame(box, t, "surface1", height=6).pack()
+        lines = report.render_system(result.get("system") or {})
+        sections = summary.system_sections(lines)
+        key_w = self._silk_width(k for _, rows in sections for k, _ in rows) + px(24)
+        for title, rows in sections:
+            box = frame(inner, t, "surface1", border="border")
+            box.pack(fill="x", pady=(0, px(8)))
+            head = frame(box, t, "surface1")
+            head.pack(fill="x", padx=px(16), pady=(px(12), px(8)))
+            silk(head, t, title, bg="surface1").pack(side="left")
+            if title == "Hardware":
+                label(head, t, "at capture time", font="mono_xs", fg="text3", bg="surface1").pack(
+                    side="right"
+                )
+            for i, (k, v) in enumerate(rows):
+                if i:
+                    rule(box, t).pack(fill="x", padx=px(16))
+                r = frame(box, t, "surface1")
+                r.pack(fill="x", padx=px(16), pady=px(8))
+                r.columnconfigure(0, minsize=key_w)
+                r.columnconfigure(1, weight=1)
+                silk(r, t, k, bg="surface1", anchor="w").grid(
+                    row=0, column=0, sticky="nw", pady=(px(2), 0)
+                )
+                fg = "text4" if v in ("unknown", "?") else "text1"
+                RichText(r, t, v, font="mono_sm", mono="mono_sm", fg=fg, mono_fg=fg).grid(
+                    row=0, column=1, sticky="ew"
+                )
+            frame(box, t, "surface1", height=px(6)).pack()
+        self.page_system.to_top()
 
     # --- data ---------------------------------------------------------------------------------
 
@@ -1048,6 +1295,8 @@ class App:
             self.selected = [self.selected[-1], folder]
         elif add and folder in self.selected and len(self.selected) == 2:
             self.selected.remove(folder)
+        elif not add and self.selected == [folder]:
+            return
         else:
             self.selected = [folder]
         self.render_rail()
@@ -1060,11 +1309,16 @@ class App:
         if folder is None:
             return
         if folder in self.traces:
-            tr = self.traces[folder]
-            self.scope.show(tr, "" if tr else "NO TRACE FOR THIS CAPTURE")
+            self._show_trace(self.traces[folder])
             return
         self.scope.show(None, "READING FRAMES")
+        self.scope_scale.configure(text="")
         self._request_trace(folder)
+
+    def _show_trace(self, tr: tracemod.Trace | None) -> None:
+        self.scope.show(tr, "" if tr else "NO TRACE FOR THIS CAPTURE")
+        self.scope_scale.configure(text=self.scope.scale_text())
+        self._paint_channels()
 
     def _request_trace(self, folder: Path) -> None:
         if folder in self.loading:
@@ -1091,7 +1345,10 @@ class App:
             self.trace_status = ("idle", "Trace access", "unknown")
             self.setup_issue = (
                 "warn",
-                "PresentMon (Intel's free frame-capture tool) isn't downloaded yet.",
+                (
+                    "PresentMon (Intel's free frame-capture tool) isn't downloaded yet. "
+                    "Frametrace fetches it from GitHub and checks its SHA-256."
+                ),
                 [("Download PresentMon", self.download_presentmon)],
             )
             self.start_btn.set_enabled(False)
@@ -1131,8 +1388,9 @@ class App:
         self.apply_hotkey()
 
     def download_presentmon(self) -> None:
-        self.setup_issue = ("info", "Downloading PresentMon...", [])
+        self.setup_issue = ("info", "Downloading PresentMon 2.6.0 and checking its SHA-256...", [])
         self.render_setup()
+        self.set_status()
 
         def work() -> None:
             lines: list[str] = []
@@ -1183,6 +1441,7 @@ class App:
     def apply_hotkey(self) -> None:
         key = self.hotkey_var.get().strip()
         if self.listener and self.listener.hotkey == key and self.listener.is_alive():
+            self.set_hotkey_note("", "text3")
             return
         try:
             new = hotkey.HotkeyListener(key, lambda: self.events.put(("hotkey", {})))
@@ -1197,7 +1456,7 @@ class App:
             self.set_hotkey_note(error, "warning")
         else:
             self.listener = new
-            self.set_hotkey_note("Works in any game, even fullscreen.", "text3")
+            self.set_hotkey_note("", "text3")
             self.save()
         if self.start_btn.key:
             self.start_btn.key.configure(text=key)
@@ -1205,7 +1464,18 @@ class App:
 
     def set_hotkey_note(self, text: str, color: str) -> None:
         self.hotkey_note = (text, color)
-        self.hotkey_label.configure(text=text, fg=self.t.c[color])
+        self._show_hotkey_note()
+
+    def _show_hotkey_note(self) -> None:
+        text, color = self.hotkey_note
+        try:
+            self.hotkey_label.configure(text=text, fg=self.t.c[color])
+            if text:
+                self.hotkey_label.grid()
+            else:
+                self.hotkey_label.grid_remove()
+        except tk.TclError:
+            pass
 
     def current_settings(self) -> capture.CaptureSettings:
         length = None if self.manual_var.get() else self.length_seconds()
@@ -1232,32 +1502,39 @@ class App:
         key = self.hotkey_var.get() or "the hotkey"
         hint = frame(self.status_hint, t)
         hint.pack(side="left")
-        if self.setup_issue and self.setup_issue[0] in ("error", "warn"):
-            self.status_lamp.set("warn")
-            self.status_word.configure(text="SETUP")
-            label(hint, t, "Finish the setup below to record.", font="caption", fg="text3").pack(
-                side="left"
-            )
+        if self.setup_issue and self.setup_issue[0] in ("error", "warn", "info"):
+            busy = self.setup_issue[0] == "info"
+            self.status_lamp.set("info" if busy else "warn")
+            set_silk(self.status_word, "Setup")
+            label(
+                hint,
+                t,
+                self.setup_issue[1] if busy else "Finish the setup below to record.",
+                font="caption",
+                fg="text3",
+            ).pack(side="left")
             self.start_btn.set_text("Start capture")
         elif state == "recording" and self.recorder:
             secs, length = self.recorder.elapsed(), self.recorder.length_s
             self.status_lamp.set("error")
-            self.status_word.configure(text="REC")
+            set_silk(self.status_word, "Rec")
             label(
                 hint, t, _clock(secs) + (f" / {_clock(length)}" if length else ""), font="mono_sm"
             ).pack(side="left")
-            label(hint, t, f"   press {key} to stop", font="caption", fg="text3").pack(side="left")
+            label(hint, t, "   press ", font="caption", fg="text3").pack(side="left")
+            KeyCap(hint, t, key).pack(side="left")
+            label(hint, t, " to stop", font="caption", fg="text3").pack(side="left")
             self.start_btn.set_text("Stop capture")
         elif state in ("stopping", "analyzing"):
             self.status_lamp.set("info")
-            self.status_word.configure(text="ANALYZING")
+            set_silk(self.status_word, "Analyzing")
             label(
                 hint, t, "Stopping PresentMon and reading the frames.", font="caption", fg="text3"
             ).pack(side="left")
             self.start_btn.set_text("Analyzing")
         else:
             self.status_lamp.set("ok")
-            self.status_word.configure(text="READY")
+            set_silk(self.status_word, "Ready")
             label(hint, t, "Press ", font="caption", fg="text3").pack(side="left")
             KeyCap(hint, t, key).pack(side="left")
             what = (
@@ -1277,12 +1554,10 @@ class App:
         if not (self.recorder and self.recorder.state == "recording"):
             return
         length, w = self.recorder.length_s, c.winfo_width()
-        frac = (
-            min(1.0, self.recorder.elapsed() / length)
-            if length
-            else (self.recorder.elapsed() % 10) / 10
-        )
-        c.create_rectangle(0, 0, w * frac, 2, fill=self.t.c["accent"], width=0)
+        if not length:  # manual: no end to measure against, so no bar
+            return
+        frac = min(1.0, self.recorder.elapsed() / length)
+        c.create_rectangle(0, 0, w * frac, px(2), fill=self.t.c["accent"], width=0)
 
     def save(self) -> None:
         self.settings.update(
@@ -1296,10 +1571,14 @@ class App:
         if self.recorder is None or self.recorder.state == "idle":
             self.set_status()
             if not self.current_result():
-                self.fill_summary(None, False)
+                self.fill_summary(None, None)
 
     def toggle_theme(self) -> None:
-        self.settings["theme"] = "light" if self.settings.get("theme", "dark") == "dark" else "dark"
+        name = self.theme_var.get()
+        if name == self.t.name:  # called directly, not from the switch: flip
+            name = "light" if self.t.dark else "dark"
+            self.theme_var.set(name)
+        self.settings["theme"] = name
         save_settings(self.settings)
         tab = self.tabs.current
         self.build()
@@ -1309,6 +1588,8 @@ class App:
     # --- events ------------------------------------------------------------------------------
 
     def poll(self) -> None:
+        if self.closed:
+            return
         try:
             while True:
                 kind, payload = self.events.get_nowait()
@@ -1317,10 +1598,8 @@ class App:
             pass
         if self.recorder and self.recorder.state == "recording":
             self.set_status()
-            length = self.recorder.length_s
-            elapsed = self.recorder.elapsed()
-            self.scope.recording(elapsed / length if length else elapsed / 10)
-        self.root.after(100, self.poll)
+            self.update_recording()
+        self.poll_job = self.root.after(100, self.poll)
 
     def handle(self, kind: str, p: dict) -> None:
         if kind == "hotkey":
@@ -1338,6 +1617,7 @@ class App:
         elif kind == "stopping":
             if self.sound_var.get():
                 capture.beep("stop")
+            self.render_main()
             self.set_status()
         elif kind == "done":
             self.record_info = {}
@@ -1361,9 +1641,14 @@ class App:
         elif kind == "trace":
             self.traces[p["folder"]] = p["trace"]
             self.loading.discard(p["folder"])
-            if self.selected and self.selected[-1] == p["folder"]:
-                tr = p["trace"]
-                self.scope.show(tr, "" if tr else "NO TRACE FOR THIS CAPTURE")
+            if (
+                self.selected
+                and self.selected[-1] == p["folder"]
+                and not (
+                    self.recorder and self.recorder.state in ("recording", "stopping", "analyzing")
+                )
+            ):
+                self._show_trace(p["trace"])
             if self.shown == "Compare" and p["folder"] in getattr(self, "compare_folders", ()):
                 self.draw_compare_scope()
         elif kind == "download":
@@ -1380,12 +1665,15 @@ class App:
 
     # --- actions ------------------------------------------------------------------------------
 
+    def _to_clipboard(self, text: str) -> None:
+        self.root.clipboard_clear()
+        self.root.clipboard_append(text)
+        self.root.update()
+
     def copy_shown(self, note: str = "") -> None:
         if not self.shown_text:
             return
-        self.root.clipboard_clear()
-        self.root.clipboard_append(self.shown_text)
-        self.root.update()
+        self._to_clipboard(self.shown_text)
         what = "Comparison" if self.shown == "Compare" else "Report"
         self.show_note(
             note or f"{what} copied to the clipboard.", f"{len(self.shown_text):,} chars"
@@ -1400,21 +1688,27 @@ class App:
             bg=t.c["surface1"],
             highlightthickness=1,
             highlightbackground=t.c["border_visible"],
-            padx=12,
-            pady=7,
+            padx=px(12),
+            pady=px(7),
         )
         box.pack()
-        Lamp(box, t, "ok").pack(side="left", padx=(0, 10))
+        Lamp(box, t, "ok").pack(side="left", padx=(0, px(10)))
         label(box, t, text, bg="surface1").pack(side="left")
         if detail:
             label(box, t, detail, font="mono_xs", fg="text3", bg="surface1").pack(
-                side="left", padx=(10, 0)
+                side="left", padx=(px(10), 0)
             )
         if self.note_job:
             self.root.after_cancel(self.note_job)
-        self.note_job = self.root.after(
-            4000, lambda: [c.destroy() for c in self.note.winfo_children()]
-        )
+        self.note_job = self.root.after(NOTE_MS, self._clear_note)
+
+    def _clear_note(self) -> None:
+        self.note_job = None
+        try:
+            for child in self.note.winfo_children():
+                child.destroy()
+        except tk.TclError:
+            pass
 
     def open_selected(self) -> None:
         if self.selected:
@@ -1427,6 +1721,13 @@ class App:
     # --- shutdown ----------------------------------------------------------------------------
 
     def on_close(self) -> None:
+        self.closed = True
+        for job in (self.poll_job, self.note_job):
+            if job:
+                try:
+                    self.root.after_cancel(job)
+                except tk.TclError:
+                    pass
         if self.listener:
             self.listener.stop()
         if self.recorder and self.recorder.state == "recording":
@@ -1454,6 +1755,10 @@ def main() -> int:
     if sys.platform == "win32":
         try:  # crisp text on high-DPI screens
             ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        except (AttributeError, OSError):
+            pass
+        try:  # group the window under Frametrace's own icon in the taskbar, not Python's
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
         except (AttributeError, OSError):
             pass
     theme.load_fonts()  # before Tk enumerates fonts
