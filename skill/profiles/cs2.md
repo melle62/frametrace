@@ -59,6 +59,39 @@ last_verified: 2026-11-26
 - PresentMon's "CPU busy" only covers CS2's render thread (about 0.7 ms per frame). VProf shows
   over 1 ms of main-thread work per frame (`Client Rendering`, `Client Simulation`).
 
+## Settings file
+Frametrace reads `cs2_video.txt` from `Steam\userdata\<account>\730\local\cfg\` (the newest
+one when several Steam accounts have played) and lists its `setting.*` entries. `fps_max` and
+other console variables aren't in that file, so the AI has to ask for them.
+
+Menu names below are from the Video settings page. **Not yet checked against a real
+`cs2_video.txt` on the maintainer's PC**: verify, then remove this line.
+
+| Config key | Menu name | Values |
+|---|---|---|
+| `defaultres` × `defaultresheight` | Resolution | pixels |
+| `fullscreen` / `nowindowborder` | Display Mode | 1 = fullscreen; 0 + borderless = fullscreen windowed |
+| `mat_vsync` | Wait for Vertical Sync | 0 off, 1 on |
+| `msaa_samples` | Multisample Anti-Aliasing Mode | 0 none, 2, 4, 8 |
+| `r_csgo_cmaa_enable` | Multisample Anti-Aliasing Mode: CMAA2 | 1 when CMAA2 is chosen |
+| `videocfg_shadow_quality` | Global Shadow Quality | 0 low … 3 very high |
+| `videocfg_dynamic_shadows` | Dynamic Shadows | 0 sun only, 1 all |
+| `videocfg_texture_detail` | Model / Texture Detail | 0 low … 2 high |
+| `r_texturefilteringquality` | Texture Filtering Mode | 0 bilinear … 5 anisotropic 16x |
+| `shaderquality` | Shader Detail | 0 low, 1 high |
+| `videocfg_particle_detail` | Particle Detail | 0 low … 2 high |
+| `videocfg_ao_detail` | Ambient Occlusion | 0 disabled … 3 high |
+| `videocfg_hdr_detail` | High Dynamic Range | 3 performance, -1 quality |
+| `videocfg_fsr_detail` | FidelityFX Super Resolution | 0 disabled, 1 ultra quality … 4 performance |
+| `r_low_latency` | NVIDIA Reflex Low Latency | 0 disabled, 1 enabled, 2 enabled + boost |
+
+## Settings by goal
+- **Lower latency:** Reflex Enabled + Boost cut median PC latency 7.25 → 6.30 ms and P95
+  11.8 → 9.2 ms, for about 4% average FPS and lower present-to-present 1% lows (measured above).
+- **Higher 1% lows (present to present):** Reflex Off gave the highest (202 vs 154 with Boost).
+  The CPU-side lows moved less (205 vs 191).
+- Not measured yet: shadow, MSAA and FSR costs on the benchmark map.
+
 ## CPU-heavy settings
 Not measured yet.
 

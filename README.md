@@ -10,9 +10,11 @@
   <img alt="PresentMon 2.6.0" src="https://img.shields.io/badge/presentmon-2.6.0-3A3A36?style=flat-square&labelColor=1C1C1A">
 </p>
 
-Frametrace records every frame while you play, works out whether the CPU or the GPU is the
-limit, and writes one short report. Paste it into any AI. With the Frametrace skill, the report
-becomes concrete advice for your game and your hardware.
+Pick what you want to improve: a higher average FPS, higher 1% lows, lower latency, less
+stutter, or a target FPS at the best quality. Frametrace benchmarks the game while you play,
+finds out which game it is and reads its current graphics settings, and writes one report that
+is a ready-made prompt. Paste it into any AI and get the in-game settings to change for your
+goal. Change them, run again, and the comparison tells you whether it helped and what to try next.
 
 <table>
   <tr><td><b>Games</b></td><td>Any game PresentMon can see: <code>DX11</code>, <code>DX12</code>, <code>Vulkan</code>, <code>OpenGL</code>. Any engine, any launcher, no per-game setup.</td></tr>
@@ -21,8 +23,9 @@ becomes concrete advice for your game and your hardware.
   <tr><td><b>Overhead</b></td><td>CS2 ran <code>512.7</code> FPS while recording, <code>515.3</code> FPS in earlier runs without it.</td></tr>
 </table>
 
-> **Status: alpha.** Capture, analysis, system info, report and compare work. Thresholds for the
-> CPU/GPU split are still being calibrated with real captures. See the [roadmap](#roadmap).
+> **Status: alpha.** Capture, analysis, goals, game detection, report and compare work. In-game
+> settings are read for Source 2 (CS2), Unreal Engine and Unity games; for others the report asks
+> the AI to get them from you. See the [roadmap](#roadmap).
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/images/window-light.png">
@@ -40,7 +43,18 @@ theme: dark by default, light in light mode.</sub>
 </picture>
 
 Frametrace finds the game on its own: the window in front when you press the hotkey, or the
-process that drew the most frames. One report holds everything below.
+process that drew the most frames. It names the game from its Steam entry or the exe, and reads
+the current graphics settings from the engine's config (Source 2 video config, Unreal
+`GameUserSettings.ini`, Unity PlayerPrefs). Account names, IDs and paths are left out. One report
+holds everything below, led by your goal and a task for the AI.
+
+| Goal | Measured by |
+|---|---|
+| Higher average FPS | Average FPS, with the 1% low as a guard |
+| Higher 1% lows | 1% low, 0.1% low, CPU-side 1% low |
+| Lower latency | PC latency (NVIDIA Reflex games), else frame time, VSync and caps |
+| Less stutter | Time in hitches, 0.1% low, worst frame |
+| Hit a target FPS | Share of seconds at the target and the 1% low; headroom goes into quality |
 
 | Readout | What it answers |
 |---|---|
@@ -50,14 +64,19 @@ process that drew the most frames. One report holds everything below.
 | GPU-limited / CPU-limited / waiting | What each frame waited for, and how fast the GPU alone could go |
 | PC latency, median and P95 | Input to frame sent, in games with NVIDIA Reflex |
 | Display path | API, present mode, VSync, tearing, frames never shown |
+| Game | Name, Steam app and build, version, engine, graphics API |
+| In-game settings | The game's current graphics settings, read from its config |
 | System | CPU, GPU and driver, RAM speed vs. the kit's rating, board, BIOS, displays |
 
-Automatic checks flag what to fix before touching game settings: RAM below its rated speed
+The bottleneck tells the AI which settings can move the frame rate in that scene: GPU-heavy
+ones (resolution, upscaling, shadows) when the GPU limits, CPU-heavy ones (view distance,
+crowds, physics) when the CPU does. Automatic checks flag what to fix before touching game settings: RAM below its rated speed
 (EXPO/XMP off), single-channel RAM, a display below its maximum refresh rate, frames through the
 desktop compositor, VSync, FPS caps, power plan, Game Mode, HAGS and memory integrity. Compare
-mode lays two captures over each other, before and after an upgrade or a settings change: both
-frame-time traces on one screen, every metric from A to B with its change and whether it's
-outside run-to-run noise, and what changed in the system.
+mode lays two captures over each other, before and after a settings change: whether B is better
+for your goal (outside run-to-run noise), which in-game settings changed, both frame-time traces
+on one screen, every metric from A to B, and what changed in the system. Its text is a follow-up
+prompt: keep the change or not, and what to try next.
 
 ## Use it (Windows 10/11)
 
@@ -71,11 +90,16 @@ On first start the window offers to download PresentMon (Intel's free capture to
 against a pinned SHA-256). Recording needs administrator rights or membership in the
 "Performance Log Users" group, and the window offers both. Then:
 
-1. Start a game and press <kbd>F10</kbd> (change it in the window). You'll hear a beep.
-2. Play normally. Recording stops after the chosen length (`30 s` by default), or when you press
+1. Pick your goal in the window (and a target FPS for "Hit a target FPS"; empty uses your
+   display's refresh rate).
+2. Start a game, go to a repeatable scene (a benchmark mode, a replay, a fixed route) and press
+   <kbd>F10</kbd> (change it in the window). You'll hear a beep.
+3. Play normally. Recording stops after the chosen length (`30 s` by default), or when you press
    <kbd>F10</kbd> again in manual mode.
-3. The verdict, the frame-time scope and the readouts appear in the window, and the report is
-   already on your clipboard. Paste it into any AI.
+4. The result appears in the window, and the report is already on your clipboard. Paste it into
+   any AI and ask away: it already says what you want and what to answer.
+5. Change the 1–3 settings it suggests, capture the same scene again, select both captures and
+   copy the comparison back into the same chat.
 
 Captures are saved in `Documents\Frametrace\captures` and listed on the left.
 <kbd>Ctrl</kbd>+click a second capture to compare the two, or right-click a capture for its folder,
@@ -86,11 +110,12 @@ its report or a comparison with the selected one.
 | <kbd>F10</kbd> | start or stop a capture, in any game, even fullscreen |
 | <kbd>↑</kbd> <kbd>↓</kbd> | previous or next capture |
 | <kbd>Ctrl</kbd>+<kbd>C</kbd> | copy the report (or the comparison) |
-| <kbd>Ctrl</kbd>+<kbd>Tab</kbd> | next tab: Summary, Report, System, Compare |
+| <kbd>Ctrl</kbd>+<kbd>Tab</kbd> | next tab: Summary, Report, Game, System, Compare |
 | <kbd>Ctrl</kbd>+<kbd>O</kbd> | open the capture's folder |
 
 Command line: `python -m frametrace report capture.csv` analyzes an existing PresentMon CSV,
-and `python -m frametrace compare before after` compares two saved captures.
+and `python -m frametrace compare before after` compares two saved captures. Both take
+`--goal avg_fps|lows|latency|stutter|target` and `--target 144`.
 
 For PresentMon details (CSV formats, permissions, anti-cheat), see
 [docs/presentmon.md](docs/presentmon.md).
@@ -102,13 +127,16 @@ frametrace/          core package, game-agnostic (no game-specific code, ever)
   gui.py             the window (tkinter, bench-instrument design)
   theme.py           design tokens: colors, IBM Plex fonts, ttk styles
   instruments.py     scope, readouts, lamps, buttons drawn with plain tk widgets
-  summary.py         wording of the summary view (verdict, readouts, details)
+  summary.py         wording of the summary view (verdict, readouts, details, goal verdict)
+  goals.py           tuning goals: what each one measures and asks the AI for
+  game.py            which game: Steam manifest, exe version info, engine
+  gamesettings.py    current in-game settings from engine configs, personal data filtered
   trace.py           compact frame-time trace for the scope (trace.json)
   capture.py         recording controller: PresentMon start/stop, game pick, saving
   hotkey.py          global hotkey (RegisterHotKey)
   analyze.py         frame stats + CPU/GPU bottleneck
   sysinfo.py         CPU/GPU/RAM/BIOS/display/Windows settings
-  report.py          text report, checks, JSON result, compare mode
+  report.py          the report as an AI prompt, checks, JSON result, compare mode
   columns.py         PresentMon CSV schema detection → canonical column names
   process.py         foreground process + automatic game detection
   presentmon.py      locating and driving PresentMon
@@ -129,6 +157,9 @@ bin/                 PresentMon goes here (not committed)
 - [x] Window with hotkey capture, fixed or manual length
 - [x] Stats, bottleneck detection, system info, checks, report, compare
 - [x] Brand and window redesign ([design system](design/frametrace-design/SKILL.md))
+- [x] Goal-driven reports: goal picker, game name, in-game settings, follow-up comparisons
+- [ ] Check the settings readers on real installs (CS2, an Unreal game, a Unity game)
+- [ ] More engine readers (Frostbite, RE Engine, id Tech, Creation Engine)
 - [ ] Real captures across DX11 / DX12 / Vulkan / OpenGL to calibrate thresholds
 - [ ] Skill (`skill/SKILL.md`) tested with real reports
 - [ ] Packaged `.exe` release

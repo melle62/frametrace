@@ -154,10 +154,29 @@ def get_foreground_process() -> ForegroundProcess | None:
     from ctypes import wintypes
 
     user32 = ctypes.WinDLL("user32", use_last_error=True)
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     user32.GetForegroundWindow.restype = wintypes.HWND
     user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
     user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+    hwnd = user32.GetForegroundWindow()
+    if not hwnd:
+        return None
+    pid = wintypes.DWORD()
+    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    title = ctypes.create_unicode_buffer(256)
+    user32.GetWindowTextW(hwnd, title, 256)
+
+    exe = image_path(pid.value)
+    return ForegroundProcess(pid=pid.value, exe=exe, window_title=title.value)
+
+
+def image_path(pid: int) -> str | None:
+    """Full image path of a running process, or None (not Windows, gone, or protected)."""
+    if sys.platform != "win32" or not pid:
+        return None
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     kernel32.OpenProcess.restype = wintypes.HANDLE
     kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
     kernel32.QueryFullProcessImageNameW.argtypes = [
@@ -167,24 +186,15 @@ def get_foreground_process() -> ForegroundProcess | None:
         ctypes.POINTER(wintypes.DWORD),
     ]
     kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
-
-    hwnd = user32.GetForegroundWindow()
-    if not hwnd:
-        return None
-    pid = wintypes.DWORD()
-    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-    title = ctypes.create_unicode_buffer(256)
-    user32.GetWindowTextW(hwnd, title, 256)
-
-    exe = None
     PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-    handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid.value)
-    if handle:  # can fail for protected (e.g. anti-cheat) processes; the PID is still valid
-        try:
-            buf = ctypes.create_unicode_buffer(32768)
-            size = wintypes.DWORD(len(buf))
-            if kernel32.QueryFullProcessImageNameW(handle, 0, buf, ctypes.byref(size)):
-                exe = buf.value
-        finally:
-            kernel32.CloseHandle(handle)
-    return ForegroundProcess(pid=pid.value, exe=exe, window_title=title.value)
+    handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not handle:  # can fail for protected (e.g. anti-cheat) processes
+        return None
+    try:
+        buf = ctypes.create_unicode_buffer(32768)
+        size = wintypes.DWORD(len(buf))
+        if kernel32.QueryFullProcessImageNameW(handle, 0, buf, ctypes.byref(size)):
+            return buf.value
+    finally:
+        kernel32.CloseHandle(handle)
+    return None

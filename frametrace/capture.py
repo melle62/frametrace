@@ -24,7 +24,18 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from frametrace import analyze, columns, presentmon, process, report, sysinfo, trace
+from frametrace import (
+    analyze,
+    columns,
+    game,
+    gamesettings,
+    goals,
+    presentmon,
+    process,
+    report,
+    sysinfo,
+    trace,
+)
 
 log = logging.getLogger(__name__)
 CREATE_NO_WINDOW = 0x08000000
@@ -40,6 +51,8 @@ class CaptureError(RuntimeError):
 class CaptureSettings:
     length_s: int | None = 30  # None = manual: runs until stopped
     process_name: str | None = None  # None = auto-detect
+    goal: str = goals.DEFAULT_GOAL  # see goals.GOALS
+    target_fps: int | None = None  # for the "target" goal; None = display refresh rate
 
 
 def _popen_flags() -> int:
@@ -247,7 +260,15 @@ class Recorder:
             "stop_method": stop_method,
             "other_presenters": [p.name for p in presenters if p.pid != target.pid][:5],
         }
-        result = report.build_result(analysis, self.system_provider(), meta)
+        info, found = identify_game(target, fg)
+        result = report.build_result(
+            analysis,
+            self.system_provider(),
+            meta,
+            game=info,
+            settings=found,
+            goal={"key": settings.goal, "target_fps": settings.target_fps},
+        )
 
         folder: Path = ctx["folder"]
         named = folder.with_name(f"{folder.name}-{_safe(target.name.removesuffix('.exe'))}")
@@ -272,6 +293,16 @@ class Recorder:
             except OSError:
                 pass
             self._log_file = None
+
+
+def identify_game(
+    target: process.Presenter, fg
+) -> tuple[game.GameInfo, gamesettings.GameSettings | None]:
+    """Name, store entry and engine of the captured game, and its in-game settings."""
+    same = fg is not None and fg.pid == target.pid
+    path = process.image_path(target.pid) or (fg.exe if same else None)
+    info = game.identify(target.name, path, fg.window_title if same else None)
+    return info, gamesettings.read(info)
 
 
 def list_captures(root: Path | None = None) -> list[tuple[Path, dict]]:

@@ -83,6 +83,9 @@ class FrameStats:
     second_fps_median: float | None = None
     second_fps_max: float | None = None
     second_fps_steady_pct: float | None = None
+    # Average FPS of every whole second (the partial first and last are skipped). Used to
+    # judge a target frame rate; small enough to keep in result.json.
+    second_fps: list[float] = field(default_factory=list)
 
 
 @dataclass
@@ -203,6 +206,7 @@ def frame_stats(rows: list[dict]) -> FrameStats:
         second_fps_median=sec_median,
         second_fps_max=sec_max,
         second_fps_steady_pct=steady,
+        second_fps=[round(x, 1) for x in seconds],
     )
 
 

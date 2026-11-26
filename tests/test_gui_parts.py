@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from test_analysis_report import fake_system, make_rows, result_for
 
-from frametrace import report, summary, theme, trace
+from frametrace import goals, report, summary, theme, trace
 
 
 def test_trace_buckets_and_hitches():
@@ -131,15 +131,20 @@ def test_compare_verdict_and_system_changes():
     a = result_for(make_rows(n=8000, gpu_frac=(0.95, 0.99)))
     b = result_for(make_rows(n=8000, ft=2.2, gpu_frac=(0.95, 0.99), seed=3), ram_running_mts=5600)
     head, items, notes = summary.compare_verdict(a, b)
-    assert summary.plain(head) == "B is 9.0% slower on average."
-    assert summary.runs(head)[1] == ("9.0%", True)  # numbers are set in mono
+    # Without a saved goal the default (higher average FPS) decides
+    assert head == "B is worse for a higher average FPS."
+    assert items[0][0] == "worse" and summary.plain(items[0][1]).startswith("Average")
+    assert ("-9.0%", True) in summary.runs(items[0][1])  # numbers are set in mono
     assert items and all(status == "worse" for status, _ in items)
     assert notes == []
     head, items, _ = summary.compare_verdict(b, a)
-    assert summary.plain(head).startswith("B is") and "faster" in head
+    assert head == "B is better for a higher average FPS."
     same = result_for(make_rows(n=8000, gpu_frac=(0.95, 0.99), seed=2))
     head, items, _ = summary.compare_verdict(a, same)
-    assert head == "Same average FPS." and items[0][0] == "same"
+    assert head == "No clear change for a higher average FPS." and items[0][0] == "same"
+    head, items, _ = summary.compare_verdict(a, b, goals.get("lows"))
+    assert head == "B is worse for higher 1% lows."
+    assert summary.plain(items[0][1]).startswith("1% low")
     short_cpu = result_for(make_rows(n=3000, gpu_frac=(0.3, 0.5)))
     _, _, notes = summary.compare_verdict(a, short_cpu)
     assert any("limit moved from the GPU to the CPU" in n for n in notes)

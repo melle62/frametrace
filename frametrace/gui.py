@@ -25,6 +25,7 @@ from tkinter import ttk
 from frametrace import (
     capture,
     download,
+    goals,
     hotkey,
     presentmon,
     report,
@@ -70,9 +71,12 @@ DEFAULTS = {
     "process_name": "",
     "sound": True,
     "theme": "dark",
+    "goal": goals.DEFAULT_GOAL,
+    "target_fps": "",
 }
 LENGTHS = ["10", "20", "30", "60", "90", "100", "120", "180", "300"]
-TABS = ["Summary", "Report", "System", "Compare"]
+TABS = ["Summary", "Report", "Game", "System", "Compare"]
+GOAL_LABELS = {g.label: g.key for g in goals.GOALS.values()}
 NOTE_MS = 2000  # how long a confirmation stays up
 
 
@@ -140,6 +144,8 @@ class App:
         self.process_var = tk.StringVar(value=self.settings["process_name"])
         self.sound_var = tk.BooleanVar(value=self.settings["sound"])
         self.theme_var = tk.StringVar(value=self.settings.get("theme", "dark"))
+        self.goal_var = tk.StringVar(value=goals.get(self.settings.get("goal")).label)
+        self.target_var = tk.StringVar(value=str(self.settings.get("target_fps") or ""))
         self.hotkey_note = ("", "text3")
 
         self.build()
@@ -263,8 +269,39 @@ class App:
         grid.pack(fill="x")
         grid.columnconfigure(1, weight=1)
 
-        label(grid, t, "Hotkey", fg="text2").grid(
+        label(grid, t, "Goal", fg="text2").grid(
             row=0, column=0, sticky="w", pady=px(4), padx=(0, px(12))
+        )
+        goal_box = ttk.Combobox(
+            grid,
+            textvariable=self.goal_var,
+            values=list(GOAL_LABELS),
+            state="readonly",
+            font=t.fonts["body_sm"],
+        )
+        goal_box.grid(row=0, column=1, sticky="ew", pady=px(4))
+        goal_box.bind("<<ComboboxSelected>>", lambda _e: self.apply_goal())
+        self.target_row = frame(grid, t)
+        self.target_row.grid(row=1, column=1, sticky="ew", pady=px(4))
+        target_label = label(grid, t, "Target", fg="text2")
+        target_label.grid(row=1, column=0, sticky="w", pady=px(4))
+        self.target_widgets = (target_label, self.target_row)
+        tentry = ttk.Entry(
+            self.target_row,
+            textvariable=self.target_var,
+            style="Mono.TEntry",
+            font=t.fonts["mono_sm"],
+            width=8,
+        )
+        tentry.pack(side="left", fill="x", expand=True, padx=(0, px(4)))
+        tentry.bind("<FocusOut>", lambda _e: self.apply_goal(), add="+")
+        tentry.bind("<Return>", lambda _e: self.apply_goal(), add="+")
+        placeholder(tentry, t, self.target_var, "empty = refresh rate")
+        label(self.target_row, t, "FPS", font="mono_sm", fg="text3").pack(side="left")
+        self._paint_target()
+
+        label(grid, t, "Hotkey", fg="text2").grid(
+            row=2, column=0, sticky="w", pady=px(4), padx=(0, px(12))
         )
         combo = ttk.Combobox(
             grid,
@@ -273,19 +310,19 @@ class App:
             width=12,
             font=t.fonts["mono_sm"],
         )
-        combo.grid(row=0, column=1, sticky="ew", pady=px(4))
+        combo.grid(row=2, column=1, sticky="ew", pady=px(4))
         combo.bind("<<ComboboxSelected>>", lambda _e: self.apply_hotkey())
         combo.bind("<Return>", lambda _e: self.apply_hotkey())
         combo.bind("<FocusOut>", lambda _e: self.apply_hotkey())
         self.hotkey_label = label(
             grid, t, "", font="caption", fg="warning", wraplength=px(190), justify="left"
         )
-        self.hotkey_label.grid(row=1, column=1, sticky="w", pady=(0, px(4)))
+        self.hotkey_label.grid(row=3, column=1, sticky="w", pady=(0, px(4)))
         self._show_hotkey_note()
 
-        label(grid, t, "Length", fg="text2").grid(row=2, column=0, sticky="w", pady=px(4))
+        label(grid, t, "Length", fg="text2").grid(row=4, column=0, sticky="w", pady=px(4))
         ln = frame(grid, t)
-        ln.grid(row=2, column=1, sticky="ew", pady=px(4))
+        ln.grid(row=4, column=1, sticky="ew", pady=px(4))
         Segmented(ln, t, [("Fixed", False), ("Manual", True)], self.manual_var, self.save).pack(
             side="left"
         )
@@ -299,11 +336,11 @@ class App:
         label(ln, t, "s", font="mono_sm", fg="text3").pack(side="left")
         self._paint_length()
 
-        label(grid, t, "Game", fg="text2").grid(row=3, column=0, sticky="w", pady=px(4))
+        label(grid, t, "Game", fg="text2").grid(row=5, column=0, sticky="w", pady=px(4))
         entry = ttk.Entry(
             grid, textvariable=self.process_var, style="Mono.TEntry", font=t.fonts["mono_sm"]
         )
-        entry.grid(row=3, column=1, sticky="ew", pady=px(4))
+        entry.grid(row=5, column=1, sticky="ew", pady=px(4))
         entry.bind("<FocusOut>", lambda _e: self.save(), add="+")
         entry.bind("<Return>", lambda _e: self.save(), add="+")
         placeholder(entry, t, self.process_var, "empty = auto-detect")
@@ -324,6 +361,34 @@ class App:
         self.count_label.pack(side="right")
         self.list = ScrollFrame(rail, t)
         self.list.pack(fill="both", expand=True, padx=(px(8), px(2)))
+
+    def _paint_target(self) -> None:
+        try:
+            for w in self.target_widgets:
+                if self.goal_key() == "target":
+                    w.grid()
+                else:
+                    w.grid_remove()
+        except tk.TclError:
+            pass
+
+    def goal_key(self) -> str:
+        return GOAL_LABELS.get(self.goal_var.get(), goals.DEFAULT_GOAL)
+
+    def target_fps(self) -> int | None:
+        """The typed target, or None (the report then uses the display's refresh rate)."""
+        try:
+            v = int(float(self.target_var.get()))
+        except ValueError:
+            return None
+        return v if 10 <= v <= 1000 else None
+
+    def apply_goal(self) -> None:
+        """A new goal re-renders the shown capture or comparison and is used for the next one."""
+        self._paint_target()
+        self.save()
+        if self.current_result() or len(self.selected) == 2:
+            self.render_main()
 
     def _paint_length(self) -> None:
         try:
@@ -388,6 +453,7 @@ class App:
         self.text.tag_configure("ok", foreground=t.c["success"], font=t.fonts["mono_head"])
         self.text.tag_configure("dim", foreground=t.c["text3"])
         self.page_system = ScrollFrame(self.pages, t)
+        self.page_game = ScrollFrame(self.pages, t)
         self.page_compare = ScrollFrame(self.pages, t)
         self.compare_scope: Scope | None = None
         self.shown = "Summary"
@@ -594,7 +660,7 @@ class App:
 
     def _copy_report_of(self, folder: Path) -> None:
         try:
-            text = report.render(self.result_for(folder))
+            text = report.render(self.result_for(folder), self.goal_key(), self.target_fps())
         except StopIteration:
             return
         self._to_clipboard(text)
@@ -688,10 +754,9 @@ class App:
                 [],
             )
         elif result:
-            cap = result["capture"]
             self._header(
-                summary.initials(cap["app"]),
-                cap["app"],
+                summary.initials(summary.name(result)),
+                summary.name(result),
                 summary.subtitle(result),
                 summary.tags(result),
             )
@@ -702,6 +767,7 @@ class App:
         self.tabs.set_disabled("Compare", not two)
         self.tabs.set_disabled("Report", not result)
         self.tabs.set_disabled("System", not result)
+        self.tabs.set_disabled("Game", not result)
         if not self.captures:
             hint = ""
         elif two:
@@ -802,7 +868,8 @@ class App:
             self._paint_channels()
             return
 
-        head, sentence = summary.verdict(result)
+        goal, target = report.resolve_goal(result, self.goal_key(), self.target_fps())
+        head, sentence = summary.goal_verdict(result, goal, target)
         self._set_verdict(head, sentence)
         b = result["analysis"]["bottleneck"]
         if b.get("available"):
@@ -906,24 +973,34 @@ class App:
 
     def show_tab(self, name: str) -> None:
         self.shown = name
-        for page in (self.page_summary, self.page_text, self.page_system, self.page_compare):
+        for page in (
+            self.page_summary,
+            self.page_text,
+            self.page_game,
+            self.page_system,
+            self.page_compare,
+        ):
             page.pack_forget()
         result = self.current_result()
         if name == "Summary":
             self.page_summary.pack(fill="both", expand=True)
-            self.shown_text = report.render(result) if result else ""
+            self.shown_text = self.report_text(result) if result else ""
         elif name == "Report" and result:
-            self.set_text(report.render(result))
+            self.set_text(self.report_text(result))
             self.page_text.pack(fill="both", expand=True)
         elif name == "Compare" and len(self.selected) == 2:
             (fa, a), (fb, b) = self.compare_pair()
             self.fill_compare(fa, a, fb, b)
             self.page_compare.pack(fill="both", expand=True)
-            self.shown_text = report.compare(a, b)
+            self.shown_text = report.compare(a, b, self.goal_key(), self.target_fps())
         elif name == "System" and result:
             self.fill_system(result)
             self.page_system.pack(fill="both", expand=True)
-            self.shown_text = report.render(result)
+            self.shown_text = self.report_text(result)
+        elif name == "Game" and result:
+            self.fill_game(result)
+            self.page_game.pack(fill="both", expand=True)
+            self.shown_text = self.report_text(result)
         self.copy_btn.set_text("Copy comparison" if name == "Compare" else "Copy report")
         self.compare_btn.set_enabled(len(self.selected) == 2 and name != "Compare")
 
@@ -955,7 +1032,7 @@ class App:
             cap, s = res["capture"], res["analysis"]["stats"]
             line = frame(chip, t, "surface1")
             line.pack(fill="x", padx=px(16))
-            label(line, t, cap["app"], bg="surface1").pack(side="left")
+            label(line, t, summary.name(res), bg="surface1").pack(side="left")
             label(line, t, f"{s['avg_fps']:.1f}", font="mono_sm", bg="surface1").pack(side="right")
             meta = f"{summary.when(cap.get('started'))} · {s['duration_s']:.0f} s · {s['frames']:,} frames"
             row2 = frame(chip, t, "surface1")
@@ -964,7 +1041,8 @@ class App:
             label(row2, t, "avg FPS", font="mono_xs", fg="text3", bg="surface1").pack(side="right")
 
         # verdict
-        head, items, notes = summary.compare_verdict(a, b)
+        goal, target = report.resolve_goal(b, self.goal_key(), self.target_fps())
+        head, items, notes = summary.compare_verdict(a, b, goal, target)
         v = frame(page, t, "surface1", border="border")
         v.pack(fill="x", pady=(0, px(8)))
         self._rich(v, head, "heading", "readout", "text1", "text1").pack(
@@ -989,6 +1067,9 @@ class App:
                 side="left", fill="x", expand=True
             )
         frame(v, t, "surface1", height=px(8)).pack()
+
+        # what changed in the game between A and B
+        self._fill_settings_changes(page, a, b)
 
         # scope: REF A under CH1 B
         sp = frame(page, t, "surface1", border="border")
@@ -1124,6 +1205,45 @@ class App:
             frame(sy, t, "surface1", height=px(6)).pack()
         self.page_compare.to_top()
 
+    def _fill_settings_changes(self, page, a: dict, b: dict) -> None:
+        """In-game settings that differ between A and B, read from the game's config."""
+        t = self.t
+        box = frame(page, t, "surface1", border="border")
+        box.pack(fill="x", pady=(0, px(8)))
+        silk(box, t, "In-game settings changed", bg="surface1").pack(
+            anchor="w", padx=px(16), pady=(px(12), px(8))
+        )
+        changes = summary.settings_changes(a, b)
+        if not changes:
+            text = (
+                "Not read for this game: tell the AI what you changed."
+                if changes is None
+                else "No change in the game's settings file."
+            )
+            r = frame(box, t, "surface1")
+            r.pack(fill="x", padx=px(16), pady=(0, px(14)))
+            Lamp(r, t, "info" if changes is None else "ok").pack(side="left", padx=(0, px(10)))
+            label(r, t, text, fg="text2", bg="surface1").pack(side="left")
+            return
+        mono = t.fonts["mono_sm"]
+        key_w = max(mono.measure(k) for k, _, _ in changes) + px(24)
+        for i, (key, va, vb) in enumerate(changes):
+            if i:
+                rule(box, t).pack(fill="x", padx=px(16))
+            r = frame(box, t, "surface1")
+            r.pack(fill="x", padx=px(16), pady=px(7))
+            Lamp(r, t, "info").pack(side="left", padx=(0, px(10)))
+            cell = frame(r, t, "surface1", width=key_w, height=px(18))
+            cell.pack(side="left")
+            cell.pack_propagate(False)
+            label(cell, t, key, font="mono_sm", fg="text2", bg="surface1", anchor="w").pack(
+                side="left"
+            )
+            label(r, t, va, font="mono_sm", fg="text3", bg="surface1").pack(side="left")
+            label(r, t, "  →  ", font="mono_sm", fg="text4", bg="surface1").pack(side="left")
+            label(r, t, vb, font="mono_sm", bg="surface1").pack(side="left")
+        frame(box, t, "surface1", height=px(6)).pack()
+
     def _silk_width(self, names) -> int:
         """Widest silk-screen label among names, in pixels (column for label/value rows)."""
         font = self.t.fonts["label"]
@@ -1233,14 +1353,39 @@ class App:
         self.text.yview_moveto(0)
         self.shown_text = text
 
+    def report_text(self, result: dict) -> str:
+        return report.render(result, self.goal_key(), self.target_fps())
+
     def fill_system(self, result: dict) -> None:
+        lines = report.render_system(result.get("system") or {})
+        self._fill_sections(self.page_system, summary.system_sections(lines))
+
+    def fill_game(self, result: dict) -> None:
+        self._fill_sections(
+            self.page_game, summary.game_sections(result), mono_keys={"In-game settings"}
+        )
+
+    def _fill_sections(self, page, sections, mono_keys: set[str] = frozenset()) -> None:
+        """Bordered sections of key/value rows (System and Game tabs)."""
         t = self.t
-        inner = self.page_system.inner
+        inner = page.inner
         for child in inner.winfo_children():
             child.destroy()
-        lines = report.render_system(result.get("system") or {})
-        sections = summary.system_sections(lines)
-        key_w = self._silk_width(k for _, rows in sections for k, _ in rows) + px(24)
+        mono = self.t.fonts["mono_sm"]
+        key_w = px(24) + max(
+            self._silk_width(
+                k for title, rows in sections if title not in mono_keys for k, _ in rows
+            ),
+            max(
+                (
+                    mono.measure(k)
+                    for title, rows in sections
+                    if title in mono_keys
+                    for k, _ in rows
+                ),
+                default=0,
+            ),
+        )
         for title, rows in sections:
             box = frame(inner, t, "surface1", border="border")
             box.pack(fill="x", pady=(0, px(8)))
@@ -1258,15 +1403,18 @@ class App:
                 r.pack(fill="x", padx=px(16), pady=px(8))
                 r.columnconfigure(0, minsize=key_w)
                 r.columnconfigure(1, weight=1)
-                silk(r, t, k, bg="surface1", anchor="w").grid(
-                    row=0, column=0, sticky="nw", pady=(px(2), 0)
-                )
+                if title in mono_keys and k not in ("Read from", "Source"):
+                    key = label(r, t, k, font="mono_sm", fg="text2", bg="surface1", anchor="w")
+                else:
+                    key = silk(r, t, k, bg="surface1", anchor="w")
+                key.grid(row=0, column=0, sticky="nw", pady=(px(2), 0))
                 fg = "text4" if v in ("unknown", "?") else "text1"
-                RichText(r, t, v, font="mono_sm", mono="mono_sm", fg=fg, mono_fg=fg).grid(
+                prose = "body_sm" if not k else "mono_sm"  # a note, not a value
+                RichText(r, t, v, font=prose, mono="mono_sm", fg=fg, mono_fg=fg).grid(
                     row=0, column=1, sticky="ew"
                 )
             frame(box, t, "surface1", height=px(6)).pack()
-        self.page_system.to_top()
+        page.to_top()
 
     # --- data ---------------------------------------------------------------------------------
 
@@ -1486,7 +1634,10 @@ class App:
     def current_settings(self) -> capture.CaptureSettings:
         length = None if self.manual_var.get() else self.length_seconds()
         return capture.CaptureSettings(
-            length_s=length, process_name=self.process_var.get().strip() or None
+            length_s=length,
+            process_name=self.process_var.get().strip() or None,
+            goal=self.goal_key(),
+            target_fps=self.target_fps(),
         )
 
     def length_seconds(self) -> int:
@@ -1572,6 +1723,8 @@ class App:
             manual=self.manual_var.get(),
             process_name=self.process_var.get().strip(),
             sound=self.sound_var.get(),
+            goal=self.goal_key(),
+            target_fps=self.target_fps() or "",
         )
         save_settings(self.settings)
         if self.recorder is None or self.recorder.state == "idle":
