@@ -678,3 +678,41 @@ Used for the System block and the raw notes in the report view.
 | Segments | GPU-limited `--ch2`, CPU-limited `--ch3`, waiting `--text4`; 1px `--background` gap between segments |
 | Ends | Butt, radius 0 |
 | Legend | Below: swatch, label, mono percentage |
+
+## 31. REFERENCE TRACE (instrument part)
+
+| Property | Value |
+|----------|-------|
+| Use | Compare view: capture A as the stored reference (REF A) under capture B |
+| Color | `--ref` `#A8A59D`, both modes (it sits on the dark screen) |
+| Line | 1.5px median, butt caps, no band, no bloom |
+| Legend | `REF A` with a neutral 8px swatch, then `CH1 B` with the yellow swatch |
+| Time axis | Each capture on its own seconds; the axis spans the longer one |
+
+## 32. DELTA ROW (instrument part)
+
+| Column | Treatment |
+|--------|-----------|
+| Metric | `--body-sm`, `--text2` |
+| A | Plex Mono, `--text2`, right-aligned |
+| B | Plex Mono, `--text1`, right-aligned |
+| Bar | 160 x 8px canvas, 1px `--text4` centre line, fill grows right for better and left for worse, full width at 25% |
+| Bar fill | status color mixed 55% into `--surface1`: better `--success`, worse `--warning`, same and changed `--text4` |
+| Change | Plex Mono: `+4.2%`, or `+0.12 pp` for shares |
+| Status | Lamp + word: `BETTER`, `WORSE`, `SAME` (inside run-to-run noise), `CHANGED` (no better direction, e.g. GPU busy), `N/A` |
+
+Rows sit in groups with a silk-screen group label: FRAME RATE, FRAME TIMES, LOAD PER FRAME, LATENCY.
+
+## 33. COMPARE VIEW (pattern)
+
+Read top to bottom like the summary view:
+
+1. **Capture chips.** `A` (neutral swatch, the older capture) and `B` (yellow swatch), each with game, time, length and average FPS in mono.
+2. **Verdict.** Headline from the average: "B is 4.2% faster on average." or "Same average FPS." Then one sentence: "Better: ... Worse: ..." with the key metrics (1% low, CPU-side 1% low, P99, PC latency) and their values. Notes below in `--text3`: the limit moved, different games, different lengths.
+3. **Scope.** REF A under CH1 B, hitch markers of B only.
+4. **Deltas.** Delta rows by group.
+5. **Bottleneck.** Two split bars, A then B, each labelled and with percentages.
+6. **System changes.** One row per difference (`RAM speed  5600 MT/s  6000 MT/s`) with an info lamp, or one ok lamp and "No system differences."
+
+Run-to-run noise bands (measured on CS2): average and median 1%, lows and P99 3%, 0.1% low and worst second 5%, max frame time 15%, hitch time 0.2 pp, latency 3% (median) and 5% (P95).
+

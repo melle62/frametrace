@@ -55,7 +55,9 @@ process that drew the most frames. One report holds everything below.
 Automatic checks flag what to fix before touching game settings: RAM below its rated speed
 (EXPO/XMP off), single-channel RAM, a display below its maximum refresh rate, frames through the
 desktop compositor, VSync, FPS caps, power plan, Game Mode, HAGS and memory integrity. Compare
-mode puts two captures side by side: before and after an upgrade or a settings change.
+mode lays two captures over each other, before and after an upgrade or a settings change: both
+frame-time traces on one screen, every metric from A to B with its change and whether it's
+outside run-to-run noise, and what changed in the system.
 
 ## Use it (Windows 10/11)
 

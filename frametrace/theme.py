@@ -29,6 +29,7 @@ DARK = {
     "accent_subtle": "#2B2203", "on_accent": "#141413", "trace": "#F5C518",
     "ch1": "#F5C518", "ch2": "#35C4DC", "ch3": "#E0559F",
     "screen": "#141413", "graticule": "#252522", "screen_text": "#8C8A83", "hitch": "#F0883E",
+    "ref": "#A8A59D",
     "success": "#3FB950", "warning": "#F0883E", "error": "#F2555A",
     "success_bg": "#12381A", "warning_bg": "#4A2410", "error_bg": "#3D1113",
 }  # fmt: skip

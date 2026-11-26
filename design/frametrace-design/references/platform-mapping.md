@@ -47,6 +47,7 @@ Frametrace ships as a Windows desktop app built with Python and Tkinter, plus a 
   --ch3: #E0559F;
   --screen: #141413;
   --graticule: #252522;
+  --ref: #A8A59D;
 
   /* Fonts */
   --font-display: "IBM Plex Sans", 'Segoe UI', system-ui, sans-serif;
@@ -362,6 +363,7 @@ module.exports = {
         ch3: 'var(--ch3)',
         screen: 'var(--screen)',
         graticule: 'var(--graticule)',
+        ref: 'var(--ref)',
         success: 'var(--success)',
         'success-bg': 'var(--success-bg)',
         warning: 'var(--warning)',

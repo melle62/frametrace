@@ -71,6 +71,7 @@ tokens:
       ch3:            "{magenta.400}"
       screen:         "{neutral.950}"   # the scope screen
       graticule:      "{neutral.800}"
+      ref:            "{neutral.400}"   # stored reference trace (compare), same in both modes
     light:
       background:     "{neutral.50}"
       surface1:       "{neutral.100}"
@@ -92,6 +93,7 @@ tokens:
       ch3:            "{magenta.400}"
       screen:         "{neutral.950}"   # the scope screen never turns light
       graticule:      "{neutral.800}"
+      ref:            "{neutral.400}"   # stored reference trace (compare), same in both modes
     success:    { light: "{green.700}", dark: "{green.500}" }
     warning:    { light: "{amber.700}", dark: "{amber.500}" }
     error:      { light: "{red.700}",   dark: "{red.500}" }
@@ -275,6 +277,22 @@ components:
     legend: "CH1 FRAME TIME (yellow), CH2 GPU BUSY (cyan), CH3 CPU BUSY of the presenting thread (magenta)"
     line_caps: "butt"
     justified_by: "The scope screen is the brand's hero and stays dark in both modes, like a real instrument."
+  ref_trace:
+    source: "derived"
+    color: "{ref}"
+    width: 1.5
+    use: "Compare view: capture A drawn as the scope's stored reference (REF A) under capture B's live CH1 trace. Median only, no band."
+    justified_by: "Bench scopes show a stored waveform in white beside the live channel. Yellow stays the one live signal."
+  delta_row:
+    source: "derived"
+    layout: "metric (body-sm, text2) | A (mono, text2, right) | B (mono, text1, right) | delta bar 160x8 | change (mono) | lamp + word"
+    bar: "diverging from a 1px text4 centre line, full width at 25%; fill = status color mixed 55% into surface1 (better success, worse warning, same/changed text4)"
+    status: "BETTER (success lamp), WORSE (warning lamp), SAME (idle lamp, inside run-to-run noise), CHANGED (info lamp, no better direction), N/A"
+    justified_by: "The bar shows size and direction at a glance; the lamp carries the status color, the number stays exact."
+  compare_view:
+    source: "derived"
+    order: "capture chips A and B, verdict (headline + better/worse sentence + notes), scope with REF A and CH1 B, delta rows grouped by Frame rate / Frame times / Load per frame / Latency, two split bars, system changes"
+    noise: "Changes inside run-to-run noise read SAME: average and median 1%, lows and P99 3%, 0.1% low and worst second 5%, max frame time 15%."
   input:
     source: "derived"
     background: "{background}"

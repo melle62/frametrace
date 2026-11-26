@@ -324,6 +324,42 @@ class SplitBar(tk.Canvas):
             x += seg
 
 
+class DeltaBar(tk.Canvas):
+    """A diverging bar: right for better, left for worse, full width at `span` percent."""
+
+    def __init__(
+        self,
+        parent,
+        t: Theme,
+        change: float | None,
+        status: str,
+        bg="surface1",
+        width=160,
+        span=25.0,
+    ):
+        super().__init__(parent, width=width, height=10, bg=t.c[bg], highlightthickness=0, bd=0)
+        self.t, self.change, self.status, self.span, self.bgkey = t, change, status, span, bg
+        self.bind("<Configure>", lambda _e: self.draw())
+
+    def draw(self) -> None:
+        self.delete("all")
+        c = self.t.c
+        w = self.winfo_width()
+        mid = w // 2
+        if self.change is not None:
+            key = {"better": "success", "worse": "warning"}.get(self.status, "text4")
+            fill = mix(c[key], c[self.bgkey], 0.55) if key != "text4" else c["text4"]
+            half = (w / 2 - 1) * min(1.0, abs(self.change) / self.span)
+            if half >= 1:
+                if self.status in ("better", "worse"):
+                    right = self.status == "better"
+                else:
+                    right = self.change > 0
+                left = mid if right else mid - half
+                self.create_rectangle(left, 1, left + half, 9, fill=fill, width=0)
+        self.create_line(mid, 0, mid, 10, fill=c["text4"])
+
+
 def nice_div(peak_ms: float) -> float:
     """ms per division so that 4 divisions show the trace with some headroom."""
     for step in (0.25, 0.5, 1, 1.5, 2, 2.5, 5, 10, 15, 20, 25, 50, 100, 250):
@@ -348,21 +384,23 @@ class Scope(tk.Canvas):
 
     CH1 frame time: 5th to 95th percentile band plus the median line.
     CH2 GPU busy and CH3 CPU busy: medians. Hitches: a dashed marker and a tick.
+    Compare view: a second capture drawn underneath as the stored reference (REF, neutral).
     """
 
-    L, R, T, B = 46, 12, 14, 24  # plot margins
+    L, R, T, B = 46, 12, 14, 26  # plot margins
 
     def __init__(self, parent, t: Theme, height=200):
         super().__init__(parent, height=height, bg=t.c["screen"], highlightthickness=0, bd=0)
         self.t = t
         self.trace: Trace | None = None
+        self.ref: Trace | None = None
         self.channels = {"ch1": True, "ch2": True, "ch3": True}
         self.message = "NO CAPTURE SELECTED"
         self.sweep: float | None = None  # 0..1 while recording
         self.bind("<Configure>", lambda _e: self.draw())
 
-    def show(self, trace: Trace | None, message: str = "") -> None:
-        self.trace, self.message, self.sweep = trace, message, None
+    def show(self, trace: Trace | None, message: str = "", ref: Trace | None = None) -> None:
+        self.trace, self.ref, self.message, self.sweep = trace, ref, message, None
         self.draw()
 
     def recording(self, progress: float) -> None:
@@ -383,10 +421,11 @@ class Scope(tk.Canvas):
             return
         x0, x1, y0, y1 = self.L, w - self.R, self.T, h - self.B
         pw, ph = x1 - x0, y1 - y0
-        tr = self.trace
-        div = nice_div(tr.peak_ms() if tr else 4.0)
+        tr, ref = self.trace, self.ref
+        peak = max((x.peak_ms() for x in (tr, ref) if x), default=4.0)
+        div = nice_div(peak)
         full = div * 4
-        dur = tr.duration_s if tr else 100.0
+        dur = max((x.duration_s for x in (tr, ref) if x), default=100.0)
 
         # graticule: 10 x 4 major divisions
         for i in range(11):
@@ -411,7 +450,7 @@ class Scope(tk.Canvas):
                 x = x0 + pw * (k * step) / dur
                 self.create_text(
                     x,
-                    y1 + 12,
+                    y1 + 7,
                     text=_fmt_num(k * step) + (" s" if k == 0 else ""),
                     anchor="n" if k else "nw",
                     fill=c["screen_text"],
@@ -442,15 +481,14 @@ class Scope(tk.Canvas):
                     self.tag_lower(bg, tid)
             return
 
-        n = tr.buckets
-
-        def X(i: int) -> float:
-            return x0 + pw * (i + 0.5) / n
+        def X(i: int, of: Trace = tr) -> float:
+            # each capture on its own seconds; the axis spans the longer one
+            return x0 + pw * ((i + 0.5) / of.buckets * of.duration_s) / dur
 
         def Y(v: float) -> float:
             return y1 - ph * min(v, full) / full
 
-        def polyline(values, color, width):
+        def polyline(values, color, width, of: Trace = tr):
             seg: list[float] = []
             for i, v in enumerate(values):
                 if v is None:
@@ -460,7 +498,7 @@ class Scope(tk.Canvas):
                         )
                     seg = []
                     continue
-                seg += [X(i), Y(v)]
+                seg += [X(i, of), Y(v)]
             if len(seg) >= 4:
                 self.create_line(*seg, fill=color, width=width, capstyle="butt", joinstyle="miter")
 
@@ -483,6 +521,9 @@ class Scope(tk.Canvas):
                     fill=mix(c["ch1"], c["screen"], 0.18),
                     outline="",
                 )
+        if ref is not None:  # over B's band, under B's line: where they differ, both show
+            polyline(ref.p50, c["ref"], 2, of=ref)
+        if self.channels["ch1"]:
             polyline(tr.p50, mix(c["ch1"], c["screen"], 0.35), 4)  # phosphor bloom
             polyline(tr.p50, c["ch1"], 2)
             for t_s, ms in tr.hitches:

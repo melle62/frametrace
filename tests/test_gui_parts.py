@@ -109,6 +109,45 @@ def test_readouts_details_and_rail_row():
     assert summary.rail_row(short)[0] == "warn" and summary.rail_row(short)[4] == "short"
 
 
+def test_compare_deltas_noise_and_direction():
+    a = result_for(make_rows(n=8000, gpu_frac=(0.95, 0.99)))
+    slower = result_for(make_rows(n=8000, ft=2.2, gpu_frac=(0.95, 0.99), seed=3))
+    groups = dict(summary.compare_deltas(a, slower))
+    assert list(groups) == ["Frame rate", "Frame times", "Load per frame"]  # no latency data
+    avg = groups["Frame rate"][0]
+    assert (
+        avg.label == "Average"
+        and avg.status == "worse"
+        and avg.change == pytest.approx(-9.1, abs=1)
+    )
+    assert avg.change_text().startswith("-") and avg.change_text().endswith("%")
+    assert groups["Frame times"][0].status == "worse"  # longer median frame time
+    assert groups["Load per frame"][0].status == "changed"  # GPU busy has no better direction
+    same = result_for(make_rows(n=8000, gpu_frac=(0.95, 0.99), seed=2))
+    assert dict(summary.compare_deltas(a, same))["Frame rate"][0].status == "same"
+
+
+def test_compare_verdict_and_system_changes():
+    a = result_for(make_rows(n=8000, gpu_frac=(0.95, 0.99)))
+    b = result_for(make_rows(n=8000, ft=2.2, gpu_frac=(0.95, 0.99), seed=3), ram_running_mts=5600)
+    head, items, notes = summary.compare_verdict(a, b)
+    assert summary.plain(head) == "B is 9.0% slower on average."
+    assert summary.runs(head)[1] == ("9.0%", True)  # numbers are set in mono
+    assert items and all(status == "worse" for status, _ in items)
+    assert notes == []
+    head, items, _ = summary.compare_verdict(b, a)
+    assert summary.plain(head).startswith("B is") and "faster" in head
+    same = result_for(make_rows(n=8000, gpu_frac=(0.95, 0.99), seed=2))
+    head, items, _ = summary.compare_verdict(a, same)
+    assert head == "Same average FPS." and items[0][0] == "same"
+    short_cpu = result_for(make_rows(n=3000, gpu_frac=(0.3, 0.5)))
+    _, _, notes = summary.compare_verdict(a, short_cpu)
+    assert any("limit moved from the GPU to the CPU" in n for n in notes)
+    assert any("Different lengths" in n for n in notes)
+    assert summary.system_changes(a, b) == [("RAM speed", "6000 MT/s", "5600 MT/s")]
+    assert summary.system_changes(a, a) == []
+
+
 def test_small_helpers():
     assert summary.initials("cs2.exe") == "CS"
     assert summary.initials("DayZ_x64.exe") == "DA"
@@ -122,7 +161,7 @@ def test_small_helpers():
     for name in ("dark", "light"):
         assert set(theme.PALETTES[name]) == set(theme.DARK)
     # the scope screen never changes with the mode
-    for key in ("screen", "graticule", "ch1", "ch2", "ch3", "trace"):
+    for key in ("screen", "graticule", "ch1", "ch2", "ch3", "trace", "ref"):
         assert theme.LIGHT[key] == theme.DARK[key]
 
 
@@ -197,6 +236,11 @@ def test_window_smoke(tk_root, tmp_path, monkeypatch):
     assert app.shown_text == report.render(app.current_result())
     app.select(app.captures[1][0], add=True)
     assert app.tabs.current == "Compare" and "Frametrace compare" in app.shown_text
+    tk_root.update()
+    assert app.compare_scope is not None and app.page_compare.inner.winfo_children()
+    for f in app.selected:
+        app.handle("trace", {"folder": f, "trace": trace.load(f)})
+    assert app.compare_scope.ref is not None and app.compare_scope.trace is not None
     app.toggle_theme()
     tk_root.update()
     assert (

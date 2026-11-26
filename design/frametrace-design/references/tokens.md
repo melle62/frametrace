@@ -139,6 +139,7 @@ Semantic tokens reference the primitives above. Components use semantic tokens, 
 | `--ch3` | `{magenta.400}` | `#E0559F` | CPU channel |
 | `--screen` | `{neutral.950}` | `#141413` | Scope screen |
 | `--graticule` | `{neutral.800}` | `#252522` | Scope grid lines |
+| `--ref` | `{neutral.400}` | `#A8A59D` | Stored reference trace in the compare view |
 | `--success` | `{green.500}` | `#3FB950` | OK lamps, passing checks |
 | `--warning` | `{amber.500}` | `#F0883E` | Warn lamps, checks worth fixing |
 | `--error` | `{red.500}` | `#F2555A` | Failed capture, missing PresentMon |
@@ -166,6 +167,7 @@ Semantic tokens reference the primitives above. Components use semantic tokens, 
 | `--ch1` / `--ch2` / `--ch3` | unchanged | `#F5C518` / `#35C4DC` / `#E0559F` | On the scope screen, which stays dark |
 | `--screen` | `{neutral.950}` | `#141413` | The scope screen never turns light |
 | `--graticule` | `{neutral.800}` | `#252522` | Scope grid lines |
+| `--ref` | `{neutral.400}` | `#A8A59D` | Reference trace: the screen stays dark, so it doesn't change |
 | `--success` | `{green.700}` | `#1F7A33` | OK lamps |
 | `--warning` | `{amber.700}` | `#A9541A` | Warn lamps |
 | `--error` | `{red.700}` | `#B42328` | Errors |
@@ -184,6 +186,7 @@ The primary button keeps its `#F5C518` fill (`--trace`, brand.500) in light mode
 ### Color Usage Rules
 
 - Yellow budget: the trace, one primary button, the focus ring, the selected-row edge. Count them; more than that is a violation.
+- The reference trace (`--ref`, capture A in the compare view) is neutral, never a channel color: yellow stays the one live signal.
 - Channel colors appear only inside the scope, beside a channel label as an 8 px swatch, and in the bottleneck split bar (GPU cyan, CPU magenta, waiting `--text4`).
 - Status colors appear only in lamps, alerts and tag tints. Never color a paragraph of text.
 - Measured contrast: dark text1 on background 15.3:1, text2 7.5:1, text3 5.3:1, CH2 8.9:1, CH3 5.2:1; light text1 17.0:1, text2 10.6:1, text3 4.9:1, accent 5.4:1, success 5.0:1, warning 4.9:1, error 6.1:1.

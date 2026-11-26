@@ -35,6 +35,7 @@ from frametrace import (
 from frametrace import trace as tracemod
 from frametrace.instruments import (
     Check,
+    DeltaBar,
     FlatButton,
     KeyCap,
     Lamp,
@@ -96,6 +97,7 @@ class App:
         self.captures: list[tuple[Path, dict]] = []
         self.selected: list[Path] = []
         self.traces: dict[Path, tracemod.Trace | None] = {}
+        self.loading: set[Path] = set()
         self.setup_issue: tuple[str, str, list] | None = None  # (level, text, buttons)
         self.capture_error: str | None = None
         self.record_info: dict = {}
@@ -294,6 +296,8 @@ class App:
         self.text.tag_configure("ok", foreground=t.c["success"])
         self.text.tag_configure("dim", foreground=t.c["text2"])
         self.page_system = ScrollFrame(self.pages, t)
+        self.page_compare = ScrollFrame(self.pages, t)
+        self.compare_scope: Scope | None = None
         self.shown = "Summary"
         self.shown_text = ""
 
@@ -704,7 +708,7 @@ class App:
 
     def show_tab(self, name: str) -> None:
         self.shown = name
-        for page in (self.page_summary, self.page_text, self.page_system):
+        for page in (self.page_summary, self.page_text, self.page_system, self.page_compare):
             page.pack_forget()
         result = self.current_result()
         if name == "Summary":
@@ -714,15 +718,262 @@ class App:
             self.set_text(report.render(result))
             self.page_text.pack(fill="both", expand=True)
         elif name == "Compare" and len(self.selected) == 2:
-            pair = [self.result_for(f) for f in self.selected]
-            older, newer = sorted(pair, key=lambda r: r["capture"].get("started", ""))
-            self.set_text(report.compare(older, newer))
-            self.page_text.pack(fill="both", expand=True)
+            (fa, a), (fb, b) = self.compare_pair()
+            self.fill_compare(fa, a, fb, b)
+            self.page_compare.pack(fill="both", expand=True)
+            self.shown_text = report.compare(a, b)
         elif name == "System" and result:
             self.fill_system(result)
             self.page_system.pack(fill="both", expand=True)
             self.shown_text = report.render(result)
         self.copy_btn.set_text("Copy comparison" if name == "Compare" else "Copy report")
+
+    def compare_pair(self) -> list[tuple[Path, dict]]:
+        """The two selected captures, older first: A is the reference, B the new run."""
+        pair = [(f, self.result_for(f)) for f in self.selected]
+        return sorted(pair, key=lambda fr: fr[1]["capture"].get("started", ""))
+
+    def fill_compare(self, fa: Path, a: dict, fb: Path, b: dict) -> None:
+        t = self.t
+        page = self.page_compare.inner
+        for child in page.winfo_children():
+            child.destroy()
+
+        # capture chips: A is the stored reference, B the live trace
+        chips = frame(page, t)
+        chips.pack(fill="x", pady=(0, 8))
+        chips.columnconfigure(0, weight=1, uniform="chip")
+        chips.columnconfigure(1, weight=1, uniform="chip")
+        for col, (name, res, swatch, role) in enumerate(
+            (("A", a, "ref", "Reference"), ("B", b, "ch1", "New run"))
+        ):
+            chip = frame(chips, t, "surface1", border="border")
+            chip.grid(row=0, column=col, sticky="nsew", padx=(0, 8) if col == 0 else 0)
+            head = frame(chip, t, "surface1")
+            head.pack(fill="x", padx=14, pady=(12, 4))
+            tk.Frame(head, width=8, height=8, bg=t.c[swatch]).pack(side="left", padx=(0, 8))
+            silk(head, t, f"{name} · {role}", bg="surface1").pack(side="left")
+            cap, s = res["capture"], res["analysis"]["stats"]
+            label(chip, t, cap["app"], bg="surface1", anchor="w").pack(fill="x", padx=14)
+            meta = f"{summary.when(cap.get('started'))} · {s['duration_s']:.0f} s · {s['avg_fps']:.1f} FPS"
+            label(chip, t, meta, font="mono_xs", fg="text3", bg="surface1", anchor="w").pack(
+                fill="x", padx=14, pady=(2, 12)
+            )
+
+        # verdict
+        head, items, notes = summary.compare_verdict(a, b)
+        v = frame(page, t, "surface1", border="border")
+        v.pack(fill="x", pady=(0, 8))
+        self._rich(v, head, "heading", "readout", "text1", "text1").pack(
+            anchor="w", padx=16, pady=(14, 8)
+        )
+        for status, phrase in items:
+            r = frame(v, t, "surface1")
+            r.pack(fill="x", padx=16, pady=(0, 6))
+            level, word = {"better": ("ok", "Better"), "worse": ("warn", "Worse")}.get(
+                status, ("idle", "Same")
+            )
+            Lamp(r, t, level).pack(side="left", anchor="n", pady=(5, 0), padx=(0, 8))
+            silk(r, t, word, bg="surface1", fg="text1", width=7, anchor="w").pack(
+                side="left", anchor="n", pady=(2, 0)
+            )
+            self._rich(r, phrase, "body_sm", "mono_sm", "text2", "text1").pack(side="left")
+        for note in notes:
+            r = frame(v, t, "surface1")
+            r.pack(fill="x", padx=16, pady=(0, 6))
+            Lamp(r, t, "info").pack(side="left", padx=(0, 8))
+            label(r, t, note, font="caption", fg="text3", bg="surface1").pack(side="left")
+        frame(v, t, "surface1", height=8).pack()
+
+        # scope: REF A under CH1 B
+        sp = frame(page, t, "surface1", border="border")
+        sp.pack(fill="x", pady=(0, 8))
+        sh = frame(sp, t, "surface1")
+        sh.pack(fill="x", padx=16, pady=(12, 10))
+        silk(sh, t, "Frame time · A vs B", bg="surface1").pack(side="left")
+        for key, name in (("ch1", "CH1 B"), ("ref", "REF A")):
+            chip = tk.Frame(
+                sh,
+                bg=t.c["surface2"],
+                highlightthickness=1,
+                highlightbackground=t.c["text3"],
+                padx=7,
+                pady=3,
+            )
+            chip.pack(side="right", padx=(6, 0))
+            tk.Frame(chip, width=8, height=8, bg=t.c[key]).pack(side="left", padx=(0, 6))
+            label(chip, t, name, font="mono_xs", bg="surface2").pack(side="left")
+        self.compare_scope = Scope(sp, t, height=184)
+        self.compare_scope.channels.update(ch2=False, ch3=False)
+        self.compare_scope.pack(fill="x", padx=16, pady=(0, 16))
+        self.compare_folders = (fa, fb)
+        self.draw_compare_scope()
+
+        # deltas
+        d = frame(page, t, "surface1", border="border")
+        d.pack(fill="x", pady=(0, 8))
+        dh = frame(d, t, "surface1")
+        dh.pack(fill="x", padx=16, pady=(12, 4))
+        silk(dh, t, "Changes from A to B", bg="surface1").pack(side="left")
+        label(
+            dh, t, "SAME = inside run-to-run noise", font="mono_xs", fg="text3", bg="surface1"
+        ).pack(side="right")
+        grid = frame(d, t, "surface1")
+        grid.pack(fill="x", padx=16, pady=(0, 12))
+        grid.columnconfigure(0, weight=1)
+        row = 0
+        for group, deltas in summary.compare_deltas(a, b):
+            silk(grid, t, group, bg="surface1", fg="text4").grid(
+                row=row, column=0, columnspan=6, sticky="w", pady=(12, 4)
+            )
+            row += 1
+            for i, delta in enumerate(deltas):
+                if i:
+                    rule(grid, t).grid(row=row, column=0, columnspan=6, sticky="ew")
+                    row += 1
+                self._delta_row(grid, row, delta)
+                row += 1
+
+        # where the frames went
+        bn = frame(page, t, "surface1", border="border")
+        bn.pack(fill="x", pady=(0, 8))
+        silk(bn, t, "Where the frames waited", bg="surface1").pack(
+            anchor="w", padx=16, pady=(12, 8)
+        )
+        for name, res in (("A", a), ("B", b)):
+            bk = res["analysis"]["bottleneck"]
+            r = frame(bn, t, "surface1")
+            r.pack(fill="x", padx=16, pady=(0, 10))
+            label(r, t, name, font="mono_sm", fg="text2", bg="surface1", width=2, anchor="w").pack(
+                side="left"
+            )
+            if bk.get("available"):
+                parts = f"GPU {bk['gpu_pct']:.0f}% · CPU {bk['cpu_pct']:.0f}% · waiting {bk['wait_pct']:.0f}%"
+                label(
+                    r, t, parts, font="mono_xs", fg="text3", bg="surface1", width=34, anchor="e"
+                ).pack(side="right")
+                bar = SplitBar(r, t)
+                bar.pack(side="left", fill="x", expand=True, padx=(8, 16))
+                bar.set(bk["gpu_pct"], bk["cpu_pct"], bk["wait_pct"])
+            else:
+                label(r, t, "no GPU busy data", font="mono_xs", fg="text3", bg="surface1").pack(
+                    side="left", padx=8
+                )
+        frame(bn, t, "surface1", height=4).pack()
+
+        # system changes
+        sy = frame(page, t, "surface1", border="border")
+        sy.pack(fill="x", pady=(0, 8))
+        silk(sy, t, "System changes", bg="surface1").pack(anchor="w", padx=16, pady=(12, 8))
+        changes = summary.system_changes(a, b)
+        if not changes:
+            r = frame(sy, t, "surface1")
+            r.pack(fill="x", padx=16, pady=(0, 14))
+            Lamp(r, t, "ok").pack(side="left", padx=(0, 10))
+            label(
+                r,
+                t,
+                "No system differences: same hardware, drivers and Windows settings.",
+                fg="text2",
+                bg="surface1",
+            ).pack(side="left")
+        for i, (name, va, vb) in enumerate(changes):
+            if i:
+                rule(sy, t).pack(fill="x", padx=16)
+            r = frame(sy, t, "surface1")
+            r.pack(fill="x", padx=16, pady=6)
+            Lamp(r, t, "info").pack(side="left", padx=(0, 10))
+            label(r, t, name, fg="text2", bg="surface1", width=16, anchor="w").pack(side="left")
+            label(r, t, va, font="mono_sm", fg="text3", bg="surface1").pack(side="left")
+            label(r, t, "  to  ", font="caption", fg="text4", bg="surface1").pack(side="left")
+            label(r, t, vb, font="mono_sm", bg="surface1").pack(side="left")
+        if changes:
+            frame(sy, t, "surface1", height=6).pack()
+        self.page_compare.to_top()
+
+    def _rich(self, parent, text: str, font: str, mono: str, fg: str, mono_fg: str) -> tk.Frame:
+        """One line with words in Plex Sans and the `ticked` numbers in Plex Mono."""
+        t, bg = self.t, parent.cget("bg")
+        line = tk.Frame(parent, bg=bg)
+        for part, is_num in summary.runs(text):
+            tk.Label(
+                line,
+                text=part,
+                font=t.fonts[mono if is_num else font],
+                fg=t.c[mono_fg if is_num else fg],
+                bg=bg,
+                bd=0,
+                padx=0,
+                pady=0,
+            ).pack(side="left", anchor="s")
+        return line
+
+    def _delta_row(self, grid: tk.Frame, row: int, d: summary.Delta) -> None:
+        t = self.t
+        status = d.status
+        level, word = {
+            "better": ("ok", "BETTER"),
+            "worse": ("warn", "WORSE"),
+            "same": ("idle", "SAME"),
+            "changed": ("info", "CHANGED"),
+        }.get(status, ("idle", "N/A"))
+        unit = f" {d.unit}" if d.unit != "%" else "%"
+        label(grid, t, d.label, fg="text2", bg="surface1", anchor="w").grid(
+            row=row, column=0, sticky="w", pady=6
+        )
+        label(
+            grid,
+            t,
+            d.fmt(d.a) + unit,
+            font="mono_sm",
+            fg="text3",
+            bg="surface1",
+            anchor="e",
+            width=11,
+        ).grid(row=row, column=1, sticky="e")
+        label(grid, t, d.fmt(d.b) + unit, font="mono_sm", bg="surface1", anchor="e", width=11).grid(
+            row=row, column=2, sticky="e", padx=(8, 16)
+        )
+        span = 1.0 if d.absolute else 25.0
+        DeltaBar(grid, t, d.change, status, span=span).grid(row=row, column=3, sticky="ew")
+        label(
+            grid,
+            t,
+            d.change_text(),
+            font="mono_sm",
+            fg="text1" if status in ("better", "worse") else "text3",
+            bg="surface1",
+            anchor="e",
+            width=9,
+        ).grid(row=row, column=4, sticky="e", padx=(12, 12))
+        cell = frame(grid, t, "surface1")
+        cell.grid(row=row, column=5, sticky="w")
+        Lamp(cell, t, level).pack(side="left", padx=(0, 6))
+        silk(
+            cell,
+            t,
+            word,
+            bg="surface1",
+            fg="text1" if status in ("better", "worse") else "text3",
+            width=8,
+            anchor="w",
+        ).pack(side="left")
+
+    def draw_compare_scope(self) -> None:
+        if not self.compare_scope or not getattr(self, "compare_folders", None):
+            return
+        fa, fb = self.compare_folders
+        for f in (fa, fb):
+            if f not in self.traces:
+                self._request_trace(f)
+        ta, tb = self.traces.get(fa), self.traces.get(fb)
+        if fa in self.traces and fb in self.traces:
+            if tb is None:
+                self.compare_scope.show(None, "NO TRACE FOR CAPTURE B")
+            else:
+                self.compare_scope.show(tb, ref=ta)
+        else:
+            self.compare_scope.show(None, "READING FRAMES")
 
     def set_text(self, text: str) -> None:
         self.text.configure(state="normal")
@@ -813,6 +1064,12 @@ class App:
             self.scope.show(tr, "" if tr else "NO TRACE FOR THIS CAPTURE")
             return
         self.scope.show(None, "READING FRAMES")
+        self._request_trace(folder)
+
+    def _request_trace(self, folder: Path) -> None:
+        if folder in self.loading:
+            return
+        self.loading.add(folder)
         result = self.result_for(folder)
 
         def work() -> None:
@@ -1103,9 +1360,12 @@ class App:
             self._render_foot()
         elif kind == "trace":
             self.traces[p["folder"]] = p["trace"]
+            self.loading.discard(p["folder"])
             if self.selected and self.selected[-1] == p["folder"]:
                 tr = p["trace"]
                 self.scope.show(tr, "" if tr else "NO TRACE FOR THIS CAPTURE")
+            if self.shown == "Compare" and p["folder"] in getattr(self, "compare_folders", ()):
+                self.draw_compare_scope()
         elif kind == "download":
             if p["ok"]:
                 self.check_setup()

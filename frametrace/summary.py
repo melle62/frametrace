@@ -200,3 +200,195 @@ def system_rows(lines: list[str]) -> list[tuple[str, str]]:
         key, sep, value = line.partition(": ")
         out.append((key, value) if sep else ("", line))
     return out
+
+
+# --- compare --------------------------------------------------------------------------------
+
+# Run-to-run noise measured on CS2 (two identical 100 s runs): average 0.2% apart, present-to-
+# present 1% low 2.8%, CPU-side 1% low 0.3%. Changes inside these bands are marked "same".
+# (label, (section, key), digits, unit, higher_is_better, noise, absolute)
+# absolute: the change is in the value's own unit (percentage points), not relative.
+COMPARE_GROUPS: list[tuple[str, list[tuple]]] = [
+    (
+        "Frame rate",
+        [
+            ("Average", ("stats", "avg_fps"), 1, "FPS", True, 1.0, False),
+            ("1% low", ("stats", "p1_fps"), 0, "FPS", True, 3.0, False),
+            ("CPU-side 1% low", ("stats", "cpu_p1_fps"), 0, "FPS", True, 3.0, False),
+            ("0.1% low", ("stats", "p01_fps"), 0, "FPS", True, 5.0, False),
+            ("Worst second", ("stats", "worst_1s_fps"), 0, "FPS", True, 5.0, False),
+        ],
+    ),
+    (
+        "Frame times",
+        [
+            ("Median", ("stats", "median_ms"), 2, "ms", False, 1.0, False),
+            ("P99", ("stats", "p99_ms"), 2, "ms", False, 3.0, False),
+            ("Max", ("stats", "max_ms"), 1, "ms", False, 15.0, False),
+            ("Time in hitches", ("stats", "spike_time_pct"), 2, "%", False, 0.2, True),
+        ],
+    ),
+    (
+        "Load per frame",
+        [
+            ("GPU busy, median", ("bottleneck", "median_gpu_busy_ms"), 2, "ms", None, 3.0, False),
+            ("CPU busy, median", ("bottleneck", "median_cpu_busy_ms"), 2, "ms", None, 3.0, False),
+        ],
+    ),
+    (
+        "Latency",
+        [
+            ("PC latency, median", ("display", "pc_latency_ms"), 2, "ms", False, 3.0, False),
+            ("PC latency, P95", ("display", "pc_latency_p95_ms"), 1, "ms", False, 5.0, False),
+        ],
+    ),
+]
+KEY_METRICS = ("Average", "1% low", "CPU-side 1% low", "P99", "PC latency, median")
+
+
+@dataclass
+class Delta:
+    label: str
+    unit: str
+    a: float | None
+    b: float | None
+    digits: int
+    higher_is_better: bool | None
+    noise: float
+    absolute: bool
+
+    @property
+    def change(self) -> float | None:
+        """Percent (or points, when absolute) from A to B."""
+        if self.a is None or self.b is None:
+            return None
+        if self.absolute:
+            return self.b - self.a
+        return 100 * (self.b - self.a) / self.a if self.a else None
+
+    @property
+    def status(self) -> str:
+        """better, worse, same, changed (no direction) or na."""
+        ch = self.change
+        if ch is None:
+            return "na"
+        if abs(ch) <= self.noise:
+            return "same"
+        if self.higher_is_better is None:
+            return "changed"
+        return "better" if (ch > 0) == self.higher_is_better else "worse"
+
+    def fmt(self, v: float | None) -> str:
+        return "n/a" if v is None else f"{v:,.{self.digits}f}"
+
+    def change_text(self) -> str:
+        ch = self.change
+        if ch is None:
+            return "n/a"
+        return f"{ch:+.2f} pp" if self.absolute else f"{ch:+.1f}%"
+
+
+def compare_deltas(a: dict, b: dict) -> list[tuple[str, list[Delta]]]:
+    """Grouped deltas from A (the older capture) to B; rows missing in both are left out."""
+    out = []
+    for group, rows in COMPARE_GROUPS:
+        deltas = []
+        for label, (section, key), digits, unit, better, noise, absolute in rows:
+            va = a["analysis"][section].get(key)
+            vb = b["analysis"][section].get(key)
+            if va is None and vb is None:
+                continue
+            deltas.append(Delta(label, unit, va, vb, digits, better, noise, absolute))
+        if deltas:
+            out.append((group, deltas))
+    return out
+
+
+def _limit(result: dict) -> str:
+    b = result["analysis"]["bottleneck"]
+    if not b.get("available"):
+        return "unknown"
+    if b.get("cap_fps"):
+        return "cap"
+    top = max((b["gpu_pct"], "GPU"), (b["cpu_pct"], "CPU"), (b["wait_pct"], "wait"))
+    return top[1]
+
+
+def _phrase(d: Delta) -> str:
+    """Metric in words, numbers in `ticks` (the window sets them in Plex Mono)."""
+    return f"{d.label}  `{d.change_text()}`  `{d.fmt(d.a)} to {d.fmt(d.b)} {d.unit}`"
+
+
+def runs(text: str) -> list[tuple[str, bool]]:
+    """'B is `4.2%` faster' -> [('B is ', False), ('4.2%', True), (' faster', False)]."""
+    return [(part, i % 2 == 1) for i, part in enumerate(text.split("`")) if part]
+
+
+def plain(text: str) -> str:
+    return text.replace("`", "")
+
+
+def compare_verdict(a: dict, b: dict) -> tuple[str, list[tuple[str, str]], list[str]]:
+    """(headline, [(status, phrase)], notes) for the compare view. A is the older capture.
+
+    The headline comes from the average; the items are the key metrics that moved beyond
+    run-to-run noise, better first. Numbers are wrapped in `ticks`: see runs() and plain().
+    """
+    deltas = {d.label: d for _, rows in compare_deltas(a, b) for d in rows}
+    avg = deltas.get("Average")
+    if avg and avg.status in ("better", "worse"):
+        word = "faster" if avg.status == "better" else "slower"
+        head = f"B is `{abs(avg.change):.1f}%` {word} on average."
+    else:
+        head = "Same average FPS."
+    key = [deltas[k] for k in KEY_METRICS if k in deltas and k != "Average"]
+    items = [("better", _phrase(d)) for d in key if d.status == "better"]
+    items += [("worse", _phrase(d)) for d in key if d.status == "worse"]
+    if not items:
+        items = [("same", "Lows, P99 and latency stayed inside run-to-run noise.")]
+    notes = []
+    la, lb = _limit(a), _limit(b)
+    if la != lb and "unknown" not in (la, lb):
+        name = {"GPU": "the GPU", "CPU": "the CPU", "wait": "VSync or a cap", "cap": "a frame cap"}
+        notes.append(f"The limit moved from {name[la]} to {name[lb]}.")
+    ca, cb = a["capture"], b["capture"]
+    if ca.get("app") != cb.get("app"):
+        notes.append(f"Different games: A is {ca.get('app')}, B is {cb.get('app')}.")
+    da, db = a["analysis"]["stats"]["duration_s"], b["analysis"]["stats"]["duration_s"]
+    if max(da, db) > 1.25 * min(da, db):
+        notes.append(
+            f"Different lengths ({da:.0f} s and {db:.0f} s): compare runs of the same scene."
+        )
+    return head, items, notes
+
+
+def system_changes(a: dict, b: dict) -> list[tuple[str, str, str]]:
+    """(label, A, B) for system details that differ between the two captures."""
+    from frametrace.report import SYSTEM_FIELDS
+
+    def show(v) -> str:
+        if isinstance(v, bool):
+            return "on" if v else "off"
+        return "unknown" if v is None else str(v)
+
+    sa, sb = a.get("system") or {}, b.get("system") or {}
+    out = []
+    for label, key in SYSTEM_FIELDS:
+        if sa.get(key) != sb.get(key):
+            unit = " MT/s" if key == "ram_running_mts" and sa.get(key) and sb.get(key) else ""
+            out.append((label, show(sa.get(key)) + unit, show(sb.get(key)) + unit))
+    ga = [
+        f"{g['name']} {g.get('nvidia_driver') or g.get('driver') or ''}".strip()
+        for g in sa.get("gpus") or []
+    ]
+    gb = [
+        f"{g['name']} {g.get('nvidia_driver') or g.get('driver') or ''}".strip()
+        for g in sb.get("gpus") or []
+    ]
+    if ga != gb:
+        out.append(("GPU / driver", ", ".join(ga) or "unknown", ", ".join(gb) or "unknown"))
+    da = [f"{d['width']}x{d['height']} @ {d['refresh_hz']} Hz" for d in sa.get("displays") or []]
+    db = [f"{d['width']}x{d['height']} @ {d['refresh_hz']} Hz" for d in sb.get("displays") or []]
+    if da != db:
+        out.append(("Display", ", ".join(da) or "unknown", ", ".join(db) or "unknown"))
+    return out
