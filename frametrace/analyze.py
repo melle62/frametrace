@@ -15,9 +15,18 @@ from dataclasses import asdict, dataclass, field
 # Per-frame bottleneck classes
 GPU_BOUND_RATIO = 0.90  # GPU busy >= 90% of the frame time -> GPU-limited
 WAIT_RATIO = 0.25  # CPU waited >= 25% of the frame time (blocked in Present) -> waiting
-# Capture-level FPS cap detection: frame times very uniform while the GPU has headroom
-CAP_SPREAD = 1.10  # P95 frame time / P5 frame time
+# Capture-level FPS cap detection, while the GPU has headroom (median GPU ratio below 0.85):
+# - pinned: per-second FPS is steady (90% of whole seconds within 3% of the median second) and
+#   never rises above it (max second <= median + 1%). In-game limiters such as CS2's fps_max
+#   hold the rate per second exactly but pace individual frames unevenly (CS2 repeats
+#   7.2/3.0/4.8 ms at fps_max 200), so frame-level uniformity alone misses them.
+# - uniform: P95 / P5 frame time below 1.10 (driver limiters, VSync).
+CAP_SPREAD = 1.10
 CAP_MAX_GPU_RATIO = 0.85
+CAP_STEADY_PCT = 90.0
+CAP_STEADY_BAND = 0.03
+CAP_TOP_MARGIN = 0.01
+CAP_MIN_SECONDS = 10
 # A spike (hitch) is a frame at least twice as long as the median of its neighbours and at
 # least 4 ms longer. Comparing with neighbours instead of the whole capture keeps heavy scenes
 # from counting as stutter: on the first CS2 capture the global rule flagged 2.1% of the time,
@@ -70,6 +79,10 @@ class FrameStats:
     # while present-to-present gave 183.7.
     cpu_p1_fps: float | None = None
     cpu_p99_ms: float | None = None
+    # FPS per whole second (for cap detection); None with fewer than CAP_MIN_SECONDS seconds
+    second_fps_median: float | None = None
+    second_fps_max: float | None = None
+    second_fps_steady_pct: float | None = None
 
 
 @dataclass
@@ -146,13 +159,24 @@ def frame_stats(rows: list[dict]) -> FrameStats:
 
     # Lowest average FPS over whole seconds (the partial first and last second are skipped)
     worst_1s = None
+    seconds: list[float] = []
     if times[-1] - times[0] >= 3:
         buckets: dict[int, list[float]] = {}
         for t, f in pairs:
             buckets.setdefault(int(t - times[0]), []).append(f)
-        full = [b for k, b in buckets.items() if 0 < k < max(buckets)]
-        if full:
-            worst_1s = min(1000 * len(b) / sum(b) for b in full)
+        seconds = [
+            1000 * len(b) / sum(b) for k, b in sorted(buckets.items()) if 0 < k < max(buckets)
+        ]
+        if seconds:
+            worst_1s = min(seconds)
+    sec_median = sec_max = steady = None
+    if len(seconds) >= CAP_MIN_SECONDS:
+        sec_median, sec_max = statistics.median(seconds), max(seconds)
+        steady = (
+            100
+            * sum(abs(x - sec_median) <= CAP_STEADY_BAND * sec_median for x in seconds)
+            / len(seconds)
+        )
 
     return FrameStats(
         frames=n,
@@ -174,6 +198,9 @@ def frame_stats(rows: list[dict]) -> FrameStats:
         worst_spikes=[(round(f, 2), round(t - times[0], 1)) for f, t in worst],
         cpu_p1_fps=1000 / quantile(cpu_ft, 0.99) if len(cpu_ft) >= 100 else None,
         cpu_p99_ms=quantile(cpu_ft, 0.99) if len(cpu_ft) >= 100 else None,
+        second_fps_median=sec_median,
+        second_fps_max=sec_max,
+        second_fps_steady_pct=steady,
     )
 
 
@@ -237,12 +264,26 @@ def bottleneck(
     # not the game logic on other threads, so it can't give a CPU FPS ceiling.
     b.cpu_fps_ceiling = None
 
+    median_ratio = statistics.median(ratios)
+    pinned = (
+        stats is not None
+        and stats.second_fps_steady_pct is not None
+        and stats.second_fps_steady_pct >= CAP_STEADY_PCT
+        and stats.second_fps_max <= stats.second_fps_median * (1 + CAP_TOP_MARGIN)
+    )
     uniform = stats is not None and stats.p95_ms / stats.p5_ms < CAP_SPREAD
-    if uniform and statistics.median(ratios) < CAP_MAX_GPU_RATIO:
-        b.cap_fps = 1000 / stats.median_ms
+    if (pinned or uniform) and median_ratio < CAP_MAX_GPU_RATIO:
+        b.cap_fps = stats.second_fps_median if pinned else 1000 / stats.median_ms
+        how = "every second within 3% and none above it" if pinned else "very uniform frame times"
         b.notes.append(
-            f"Frame times are very uniform at ~{b.cap_fps:.0f} FPS while the GPU has headroom: "
-            "an FPS cap or VSync is probably limiting, not the CPU or GPU."
+            f"The frame rate is pinned at ~{b.cap_fps:.0f} FPS ({how}) while the GPU is busy only "
+            f"~{100 * median_ratio:.0f}% of each frame: an FPS cap or VSync sets the pace, not the CPU "
+            "or GPU. An in-game cap sleeps inside the game's frame, which PresentMon counts as CPU "
+            "busy, so frames that look CPU-limited here are waiting for the cap."
+        )
+        b.notes.append(
+            "Under a cap the GPU clocks down, so its busy time per frame rises and the GPU FPS "
+            "estimate is conservative."
         )
 
     # Blocked in Present with VSync off and no cap: the only thing to wait for is the GPU
@@ -256,6 +297,8 @@ def bottleneck(
         )
         gpu, wait = gpu + wait, 0
 
+    if b.cap_fps is not None:  # with a cap, frames the GPU didn't limit were waiting for it
+        cpu, wait = 0, cpu + wait
     b.gpu_pct, b.cpu_pct, b.wait_pct = (100 * x / total for x in (gpu, cpu, wait))
     shares = {
         "GPU-limited": b.gpu_pct,

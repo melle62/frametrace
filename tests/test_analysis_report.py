@@ -388,3 +388,53 @@ def test_cpu_side_lows_use_frame_start_intervals():
     s = analyze.frame_stats(rows)
     assert s.p1_fps == pytest.approx(200, rel=0.01)
     assert s.cpu_p1_fps == pytest.approx(500, rel=0.01)
+
+
+def _pattern_rows(seconds=30, pattern=(7.2, 3.0, 4.8), gpu=0.5, seed=3):
+    """An in-game limiter like CS2's fps_max: exact rate per second, uneven frames."""
+    rnd = random.Random(seed)
+    rows, t, i = [], 0.0, 0
+    while t < seconds:
+        f = pattern[i % len(pattern)] * rnd.uniform(0.97, 1.03)
+        rows.append(
+            {
+                "app": "game.exe",
+                "pid": 7,
+                "swapchain": "0x1",
+                "runtime": "DXGI",
+                "present_mode": "Hardware: Independent Flip",
+                "allows_tearing": 1,
+                "sync_interval": 0,
+                "time_s": t,
+                "ms_between_presents": f,
+                "ms_frame_time": f,
+                "ms_cpu_busy": f * 0.99,
+                "ms_cpu_wait": f * 0.01,
+                "ms_gpu_busy": 5.0 * gpu,
+                "ms_between_display_change": f,
+            }
+        )
+        t += f / 1000
+        i += 1
+    return rows
+
+
+def test_in_game_cap_with_uneven_frames_is_detected():
+    a = analyze.analyze(_pattern_rows(), "game.exe", 7)
+    b = a.bottleneck
+    assert b.cap_fps == pytest.approx(200, rel=0.02)
+    assert b.verdict.startswith("capped at ~200")
+    assert b.cpu_pct == 0 and b.wait_pct > 80  # limiter sleep isn't a CPU limit
+    assert a.stats.p95_ms / a.stats.p5_ms > 2  # the old frame-uniformity rule alone missed this
+
+
+def test_steady_free_running_cpu_limit_is_not_a_cap():
+    rows = make_rows(n=15000, ft=2.0, jitter=0.2, gpu_frac=(0.4, 0.6))  # 30 s, ~500 FPS
+    b = analyze.analyze(rows, "g", 1).bottleneck
+    assert b.cap_fps is None and "CPU-limited" in b.verdict
+
+
+def test_gpu_bound_steady_scene_is_not_a_cap():
+    rows = make_rows(n=15000, ft=2.0, jitter=0.02, gpu_frac=(0.95, 0.99))
+    b = analyze.analyze(rows, "g", 1).bottleneck
+    assert b.cap_fps is None and "GPU-limited" in b.verdict

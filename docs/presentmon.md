@@ -152,10 +152,15 @@ Each frame gets one class:
 - **CPU-limited:** everything else
 
 The verdict is "mostly X" when one class has at least 70% of the frames, otherwise "mixed,
-leaning X". On top of that, a capture counts as **capped** when frame times are very uniform
-(P95 / P5 < 1.10) while the median GPU ratio is below 0.85. In-game limiters like `fps_max`
-sleep inside the game's frame, so they look like CPU time; the uniform frame times are what
-give them away. The first second of each capture is skipped, because starting the trace and
+leaning X". On top of that, a capture counts as **capped** while the median GPU ratio is below
+0.85 and either the FPS per second is pinned (90% of whole seconds within 3% of the median
+second, and no second more than 1% above it) or the frame times are very uniform
+(P95 / P5 < 1.10). In-game limiters like `fps_max` sleep inside the game's frame, so they look
+like CPU time; with a cap, those frames count as "waiting" instead of CPU-limited.
+CS2 at `fps_max 200` showed why the per-second rule is needed: every second sat at 195–200.7 FPS,
+but individual frames repeated a 7.2 / 3.0 / 4.8 ms pattern (P95 / P5 = 3.4), so frame-level
+uniformity alone missed the cap. GPU busy per frame was 2.31 ms there versus 1.94 ms uncapped,
+because the GPU clocks down under a cap. The first second of each capture is skipped, because starting the trace and
 pressing the hotkey can cause a hitch.
 
 **CPU busy only covers the presenting thread.** PresentMon measures the thread that calls
