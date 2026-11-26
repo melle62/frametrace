@@ -1,67 +1,82 @@
-# Frametrace
+<p align="center">
+  <img src="docs/brand/banner.svg" width="100%" alt="Frametrace. Answers, not graphs. A frame-time trace on an oscilloscope screen with four readouts from a CS2 run: 426.7 FPS average, GPU-limited on 93% of frames, 199 FPS CPU-side 1% low, 6.8 ms PC latency.">
+</p>
 
-**Answers instead of graphs.** Frametrace records frame times while you play, works out whether
-your CPU or your GPU is holding you back, collects the system details that matter, and gives you
-one compact text report. Paste the report into any AI. With the Frametrace skill, it turns into
-concrete advice for your game and your hardware.
+<p align="center">
+  <a href="https://github.com/melle62/frametrace/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/melle62/frametrace/ci.yml?branch=main&style=flat-square&label=CI&labelColor=1C1C1A"></a>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-3A3A36?style=flat-square&labelColor=1C1C1A"></a>
+  <img alt="Windows 10 and 11" src="https://img.shields.io/badge/windows-10%20%7C%2011-3A3A36?style=flat-square&labelColor=1C1C1A">
+  <img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10%2B-3A3A36?style=flat-square&labelColor=1C1C1A">
+  <img alt="PresentMon 2.6.0" src="https://img.shields.io/badge/presentmon-2.6.0-3A3A36?style=flat-square&labelColor=1C1C1A">
+</p>
 
-Works with **any** game: DirectX 11, DirectX 12, Vulkan and OpenGL, any engine, any launcher. No
-per-game setup. Capture is based on Intel's [PresentMon](https://github.com/GameTechDev/PresentMon),
-which reads frame events from Windows and doesn't touch the game.
+Frametrace records every frame while you play, works out whether the CPU or the GPU is the
+limit, and writes one short report. Paste it into any AI. With the Frametrace skill, the report
+becomes concrete advice for your game and your hardware.
+
+<table>
+  <tr><td><b>Games</b></td><td>Any game PresentMon can see: <code>DX11</code>, <code>DX12</code>, <code>Vulkan</code>, <code>OpenGL</code>. Any engine, any launcher, no per-game setup.</td></tr>
+  <tr><td><b>Capture</b></td><td>Intel <a href="https://github.com/GameTechDev/PresentMon">PresentMon</a> <code>2.6.0</code> reads frame events from Windows. No injection, no overlay.</td></tr>
+  <tr><td><b>Accuracy</b></td><td>CS2 benchmark map: CPU-side 1% low within <code>1.5%</code> of the game's own VProf counter. Two runs of the same <code>100 s</code> came out <code>0.2%</code> apart.</td></tr>
+  <tr><td><b>Overhead</b></td><td>CS2 ran <code>512.7</code> FPS while recording, <code>515.3</code> FPS in earlier runs without it.</td></tr>
+</table>
 
 > **Status: alpha.** Capture, analysis, system info, report and compare work. Thresholds for the
 > CPU/GPU split are still being calibrated with real captures. See the [roadmap](#roadmap).
 
-![The Frametrace window: verdict, frame-time scope, readouts and checks for a CS2 capture](docs/images/window-dark.png)
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/window-light.png">
+  <img src="docs/images/window-dark.png" width="100%" alt="The Frametrace window: verdict, frame-time scope, readouts and checks for a CS2 capture">
+</picture>
 
-<sub>The window with synthetic demo data shaped like a CS2 benchmark run. Light mode:
-[docs/images/window-light.png](docs/images/window-light.png).</sub>
+<sub>The window with synthetic demo data shaped like a CS2 benchmark run. It follows your GitHub
+theme: dark by default, light in light mode.</sub>
 
 ## How it works
 
-```
-F10 in game ──► PresentMon records every frame ──► F10 again (or after 30 s)
-                                                     │
-          ┌──────────────────────────────────────────┘
-          ▼
-  pick the game automatically ──► stats + CPU/GPU bottleneck ──► + system info + checks
-                                                                     │
-                       report copied to clipboard ◄──────────────────┘
-                                 │
-                                 ▼
-                 paste into Claude / ChatGPT / … with the Frametrace skill
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/brand/how-it-works-dark.svg">
+  <img src="docs/brand/how-it-works-light.svg" width="100%" alt="How Frametrace works. 01 Capture: press F10 in game. 02 Measure: PresentMon records every frame for 30 s or until F10 again. 03 Verdict: GPU-limited, 93% of frames. 04 Report: one short report, copied to the clipboard, to paste into any AI.">
+</picture>
 
-The report covers average FPS, 1% and 0.1% lows, the worst second, P99 frame time, stutter
-spikes, the share of frames limited by the CPU and by the GPU, how fast the GPU alone could go,
-and PC latency when the game uses NVIDIA Reflex. Automatic checks catch the classic problems: RAM running below its rated speed
-(EXPO/XMP off), single-channel RAM, a display running below its maximum refresh rate, frames
-going through the desktop compositor, VSync, FPS caps, and power plan, Game Mode, HAGS and
-memory integrity. Compare mode puts two captures side by side (before and after an upgrade
-or a settings change).
+Frametrace finds the game on its own: the window in front when you press the hotkey, or the
+process that drew the most frames. One report holds everything below.
+
+| Readout | What it answers |
+|---|---|
+| Average FPS, 1% low, 0.1% low, worst second | How fast, and how even |
+| CPU-side 1% low | The same low an in-game counter such as VProf shows |
+| P99 frame time, hitches | The frames you feel. A hitch is `2x` its neighbours and `4 ms` longer. |
+| GPU-limited / CPU-limited / waiting | What each frame waited for, and how fast the GPU alone could go |
+| PC latency, median and P95 | Input to frame sent, in games with NVIDIA Reflex |
+| Display path | API, present mode, VSync, tearing, frames never shown |
+| System | CPU, GPU and driver, RAM speed vs. the kit's rating, board, BIOS, displays |
+
+Automatic checks flag what to fix before touching game settings: RAM below its rated speed
+(EXPO/XMP off), single-channel RAM, a display below its maximum refresh rate, frames through the
+desktop compositor, VSync, FPS caps, power plan, Game Mode, HAGS and memory integrity. Compare
+mode puts two captures side by side: before and after an upgrade or a settings change.
 
 ## Use it (Windows 10/11)
 
-You need Python 3.10 or newer.
+You need Python `3.10` or newer. Nothing else: the window is plain tkinter and bundles its fonts.
 
 ```powershell
 python -m frametrace              # or double-click Frametrace.bat
 ```
 
-No extra packages: the window is plain tkinter and bundles its fonts.
-
 On first start the window offers to download PresentMon (Intel's free capture tool, checked
 against a pinned SHA-256). Recording needs administrator rights or membership in the
 "Performance Log Users" group, and the window offers both. Then:
 
-1. Start a game and press **F10** (change it in the window). You'll hear a beep.
-2. Play normally. Recording stops after the chosen length (30 s by default), or when you press
-   F10 again in manual mode.
+1. Start a game and press <kbd>F10</kbd> (change it in the window). You'll hear a beep.
+2. Play normally. Recording stops after the chosen length (`30 s` by default), or when you press
+   <kbd>F10</kbd> again in manual mode.
 3. The verdict, the frame-time scope and the readouts appear in the window, and the report is
    already on your clipboard. Paste it into any AI.
 
-Captures are saved in `Documents\Frametrace\captures` and listed on the left. Ctrl+click a
-second capture to compare the two.
+Captures are saved in `Documents\Frametrace\captures` and listed on the left.
+<kbd>Ctrl</kbd>+click a second capture to compare the two.
 
 Command line: `python -m frametrace report capture.csv` analyzes an existing PresentMon CSV,
 and `python -m frametrace compare before after` compares two saved captures.
@@ -90,9 +105,9 @@ frametrace/          core package, game-agnostic (no game-specific code, ever)
   assets/fonts/      IBM Plex Sans and Mono (SIL OFL 1.1)
 design/              the Frametrace design system (hue skill: tokens, components, previews)
 skill/               the AI skill (SKILL.md) and optional per-game profiles
-tools/               setup and probe scripts
+tools/               setup, probe and brand-image scripts (tools/brand.py)
 tests/               pytest suite and fixtures
-docs/                design notes and findings
+docs/                design notes, findings, README images (docs/brand)
 bin/                 PresentMon goes here (not committed)
 ```
 
