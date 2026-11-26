@@ -164,11 +164,27 @@ isn't included. The first real CS2 capture showed this: PresentMon reported 0.67
 while CS2's own VProf showed over 1 ms of client rendering and simulation per frame on the main
 thread. So the report gives a GPU FPS ceiling (1000 / median GPU busy) but no CPU ceiling.
 
-**First calibration (CS2, 1440p, 7800X3D + RTX 4070 Ti Super, VSync off, Reflex on):**
-PresentMon showed GPU busy ≈ 90% of the mean frame time, and the presenting thread blocked in
-Present for 1.13 ms of a 1.82 ms median frame. VProf agreed that the main thread waited too
-(LowLatencySleep 0.25 ms, Frame Boundary 0.78 ms per frame). Both point to a GPU-paced game at
-about 500 FPS, which is why Present waits with VSync off now count as GPU-limited.
+**First calibration (CS2 benchmark map, 1440p, 7800X3D + RTX 4070 Ti Super, VSync off,
+Reflex on), compared with CS2's own VProf output from the same run:**
+
+- *Bottleneck.* GPU busy added up to 97.6% of the total frame time, and the presenting thread
+  was blocked in Present for 1.13 ms of a 1.82 ms median frame (`MsCPUWait` equals
+  `MsInPresentAPI` exactly, so CPU wait really is time inside Present). VProf agreed that the
+  main thread waited too (LowLatencySleep 0.25 ms, Frame Boundary 0.78 ms per frame). Both
+  point to a GPU-paced game at about 500 FPS, which is why Present waits with VSync off now
+  count as GPU-limited (93% GPU-limited for this run).
+- *Average FPS (470.5 vs VProf 512.7).* The capture window was shorter than the benchmark run.
+  VProf's extra 9,794 frames in 9.6 s work out to about 1,015 FPS, which matches the light
+  scenes at the very start and end of the capture (974 FPS). Within the same window the two
+  tools can't disagree on average FPS.
+- *1% low (183.7 vs VProf 211.0).* VProf measures the game's own frame loop. The matching
+  PresentMon column is `MsBetweenAppStart`, which gives P1 209.4, within 1% of VProf.
+  Present-to-present intervals (`MsBetweenPresents`, what CapFrameX and reviewers use) are
+  jitterier, so the report shows both.
+- *Stutter.* Comparing each frame with the capture-wide median flagged 2.1% of the time as
+  spikes, but those were heavier scenes at about 200 FPS. Comparing each frame with its 30
+  neighbours on each side found 12 real hitches (0.1% of the time). The report now uses the
+  neighbour rule.
 
 All thresholds are module constants in `analyze.py` and are first estimates until real
 captures calibrate them.

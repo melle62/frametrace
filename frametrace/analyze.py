@@ -18,9 +18,13 @@ WAIT_RATIO = 0.25  # CPU waited >= 25% of the frame time (blocked in Present) ->
 # Capture-level FPS cap detection: frame times very uniform while the GPU has headroom
 CAP_SPREAD = 1.10  # P95 frame time / P5 frame time
 CAP_MAX_GPU_RATIO = 0.85
-# A spike is a frame at least twice the median and at least 4 ms longer than it
+# A spike (hitch) is a frame at least twice as long as the median of its neighbours and at
+# least 4 ms longer. Comparing with neighbours instead of the whole capture keeps heavy scenes
+# from counting as stutter: on the first CS2 capture the global rule flagged 2.1% of the time,
+# the local one 0.1%.
 SPIKE_FACTOR = 2.0
 SPIKE_MIN_EXTRA_MS = 4.0
+SPIKE_NEIGHBOURS = 30  # on each side
 # High FPS where HAGS' GPU-busy overstatement matters (see docs)
 HIGH_FPS = 300
 # Leave out the start of a capture (trace start-up and the hotkey press can cause a hitch)
@@ -59,9 +63,13 @@ class FrameStats:
     max_ms: float
     stdev_ms: float
     spikes: int
-    spike_threshold_ms: float
     spike_time_pct: float  # share of the capture spent in spike frames
     worst_spikes: list[tuple[float, float]] = field(default_factory=list)  # (ms, at second)
+    # Same lows measured from the CPU side (MsBetweenAppStart). In-game counters such as
+    # CS2's VProf measure this: on the first CS2 capture it gave P1 209.4 vs VProf's 211.0,
+    # while present-to-present gave 183.7.
+    cpu_p1_fps: float | None = None
+    cpu_p99_ms: float | None = None
 
 
 @dataclass
@@ -130,9 +138,11 @@ def frame_stats(rows: list[dict]) -> FrameStats:
     median = quantile(s, 0.5)
     slowest = s[-max(1, n // 100) :]
 
-    threshold = max(median * SPIKE_FACTOR, median + SPIKE_MIN_EXTRA_MS)
-    spike_frames = [(f, t) for t, f in pairs if f > threshold]
+    spike_frames = _spikes(pairs)
     worst = sorted(spike_frames or [(f, t) for t, f in pairs], reverse=True)[:3]
+    cpu_ft = sorted(
+        r["ms_frame_time"] for r in rows[1:] if r.get("ms_frame_time") and r["ms_frame_time"] > 0
+    )
 
     # Lowest average FPS over whole seconds (the partial first and last second are skipped)
     worst_1s = None
@@ -160,10 +170,25 @@ def frame_stats(rows: list[dict]) -> FrameStats:
         max_ms=s[-1],
         stdev_ms=statistics.pstdev(ft),
         spikes=len(spike_frames),
-        spike_threshold_ms=threshold,
         spike_time_pct=100 * sum(f for f, _ in spike_frames) / sum(ft),
         worst_spikes=[(round(f, 2), round(t - times[0], 1)) for f, t in worst],
+        cpu_p1_fps=1000 / quantile(cpu_ft, 0.99) if len(cpu_ft) >= 100 else None,
+        cpu_p99_ms=quantile(cpu_ft, 0.99) if len(cpu_ft) >= 100 else None,
     )
+
+
+def _spikes(pairs: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """(frame_ms, time_s) of frames that are much longer than their neighbours."""
+    ft = [f for _, f in pairs]
+    out = []
+    for i, (t, f) in enumerate(pairs):
+        if f <= SPIKE_MIN_EXTRA_MS:  # can't be 4 ms longer than anything: skip the median
+            continue
+        lo, hi = max(0, i - SPIKE_NEIGHBOURS), min(len(ft), i + SPIKE_NEIGHBOURS + 1)
+        local = statistics.median(ft[lo:i] + ft[i + 1 : hi]) if hi - lo > 1 else f
+        if f > max(local * SPIKE_FACTOR, local + SPIKE_MIN_EXTRA_MS):
+            out.append((f, t))
+    return out
 
 
 def bottleneck(

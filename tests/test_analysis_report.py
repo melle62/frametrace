@@ -367,3 +367,24 @@ def test_recorder_end_to_end(tmp_path, monkeypatch):
 
 def test_fake_presentmon_source_is_valid_python():
     compile(textwrap.dedent(FAKE_PRESENTMON), "fake", "exec")
+
+
+def test_heavy_scene_is_not_a_hitch_but_a_lone_long_frame_is():
+    rows = make_rows(n=1500, ft=2.0, jitter=0.0) + make_rows(n=1500, ft=6.0, jitter=0.0, seed=2)
+    t = 0.0
+    for r in rows:  # continuous time axis across the two scenes
+        r["time_s"] = t
+        t += r["ms_between_presents"] / 1000
+    assert analyze.frame_stats(rows).spikes == 0  # 6 ms frames are a heavier scene, not stutter
+    rows[2000]["ms_between_presents"] = 20.0
+    s = analyze.frame_stats(rows)
+    assert s.spikes == 1 and s.worst_spikes[0][0] == 20.0
+
+
+def test_cpu_side_lows_use_frame_start_intervals():
+    rows = make_rows(n=2000, ft=2.0, jitter=0.0)
+    for r in rows[::50]:
+        r["ms_between_presents"] = 5.0  # present pacing jitter only
+    s = analyze.frame_stats(rows)
+    assert s.p1_fps == pytest.approx(200, rel=0.01)
+    assert s.cpu_p1_fps == pytest.approx(500, rel=0.01)

@@ -127,7 +127,7 @@ def checks(r: dict) -> list[dict]:
     if stats["spike_time_pct"] > 2:
         add(
             "warn",
-            f"Stutter: {stats['spike_time_pct']:.1f}% of the time was spent in spike frames.",
+            f"Stutter: {stats['spike_time_pct']:.1f}% of the time was spent in hitches (frames twice as long as their neighbours).",
         )
     if disp.get("dropped_pct") and disp["dropped_pct"] > 10:
         add("info", f"{disp['dropped_pct']:.0f}% of frames were never shown on screen.")
@@ -173,7 +173,11 @@ def render(r: dict) -> str:
             f"Frame time: median {s['median_ms']:.2f} ms | P95 {s['p95_ms']:.2f} | P99 {s['p99_ms']:.2f}"
             f" | P99.9 {s['p999_ms']:.2f} | max {s['max_ms']:.2f} | stdev {s['stdev_ms']:.2f}"
         ),
-        f"Spikes (> {s['spike_threshold_ms']:.1f} ms): {s['spikes']} frames, {s['spike_time_pct']:.1f}% of the time"
+        (
+            f"CPU-side frame pacing (what in-game counters measure): 1% low {_f(s.get('cpu_p1_fps'))}"
+            f" | P99 {_f(s.get('cpu_p99_ms'), 2, ' ms')}"
+        ),
+        f"Hitches (frames 2x longer than their neighbours and +4 ms): {s['spikes']} frames, {s['spike_time_pct']:.1f}% of the time"
         + (
             " | worst: " + ", ".join(f"{ms:.1f} ms @ {t:.1f} s" for ms, t in s["worst_spikes"])
             if s["worst_spikes"]
@@ -280,7 +284,8 @@ COMPARE_ROWS = [
     ("Median frame time (ms)", ("stats", "median_ms"), 2, False),
     ("P99 frame time (ms)", ("stats", "p99_ms"), 2, False),
     ("Max frame time (ms)", ("stats", "max_ms"), 2, False),
-    ("Time in spikes (%)", ("stats", "spike_time_pct"), 1, False),
+    ("CPU-side 1% low FPS", ("stats", "cpu_p1_fps"), 1, True),
+    ("Time in hitches (%)", ("stats", "spike_time_pct"), 1, False),
     ("GPU-limited frames (%)", ("bottleneck", "gpu_pct"), 0, None),
     ("CPU-limited frames (%)", ("bottleneck", "cpu_pct"), 0, None),
     ("Median GPU busy (ms)", ("bottleneck", "median_gpu_busy_ms"), 2, False),
