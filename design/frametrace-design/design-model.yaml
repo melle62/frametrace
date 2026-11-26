@@ -1,0 +1,335 @@
+name: "Frametrace"
+description: "Design language for Frametrace, an open-source game benchmarking tool that records every frame, finds whether the CPU or the GPU is the limit, and writes one report to paste into any AI. Bench-instrument direction: warm graphite panels, one yellow trace, oscilloscope channel colors for signals."
+philosophy: "A bench instrument for game performance. Warm graphite panels, silk-screened labels, every number in mono, and one yellow trace of light that is the measurement itself. The tension: clinical lab precision against a single live, warm signal. Lineage: bench oscilloscopes (graticule screens, channel colors), IBM-era technical documentation, motorsport telemetry readouts."
+primary_mode: "dark"
+brand_source: "INVENTED for Frametrace (github.com/melle62/frametrace). Direction chosen by the maintainer: Bench instrument."
+brand_domain: "PC game performance diagnostics: desktop capture utility + AI-ready text report"
+brand_type: "ui-rich"
+mono_for_code: true
+mono_for_metrics: true
+
+# ── PRIMITIVES ──────────────────────────────────────────
+primitives:
+  colors:
+    neutral:             # warm graphite, slightly olive, like painted instrument housings
+      50:  "#F7F6F2"
+      100: "#ECEAE4"
+      200: "#DFDDD6"
+      300: "#C8C5BC"
+      400: "#A8A59D"
+      500: "#8C8A83"
+      600: "#66645E"
+      700: "#3A3A36"
+      800: "#252522"
+      900: "#1C1C1A"
+      950: "#141413"
+    brand:               # CH1 trace yellow, the phosphor of the scope
+      50:  "#FEF9E7"
+      100: "#FDF0C2"
+      200: "#FBE38A"
+      300: "#F8D553"
+      400: "#F6CB33"
+      500: "#F5C518"    # primary: the trace, CH1, the one interactive accent
+      600: "#C9A10E"
+      700: "#7F6100"    # light-mode accent (text and borders on paper)
+      800: "#5E4800"
+      900: "#3D2F02"
+      950: "#2B2203"
+    cyan:                # CH2 = GPU
+      400: "#35C4DC"
+      700: "#0B7385"
+    magenta:             # CH3 = CPU
+      400: "#E0559F"
+      700: "#B02F74"
+    red:   { 50: "#FDECEC", 500: "#F2555A", 700: "#B42328", 900: "#3D1113" }
+    green: { 50: "#EAF7EC", 500: "#3FB950", 700: "#1F7A33", 900: "#12381A" }
+    amber: { 50: "#FDF1E8", 500: "#F0883E", 700: "#A9541A", 900: "#4A2410" }   # orange on purpose: yellow is the trace
+  spacing: [0, 2, 4, 8, 12, 16, 24, 32, 48, 64, 96]
+  radii:   [0, 2, 4]
+
+# ── SEMANTIC TOKENS ─────────────────────────────────────
+tokens:
+  colors:
+    dark:
+      background:     "{neutral.950}"
+      surface1:       "{neutral.900}"
+      surface2:       "{neutral.800}"
+      surface3:       "{neutral.700}"
+      border:         "{neutral.800}"
+      border_visible: "{neutral.700}"
+      text1:          "{neutral.100}"
+      text2:          "{neutral.400}"
+      text3:          "{neutral.500}"
+      text4:          "{neutral.600}"
+      accent:         "{brand.500}"
+      accent_hover:   "{brand.400}"
+      accent_subtle:  "{brand.950}"
+      on_accent:      "{neutral.950}"
+      trace:          "{brand.500}"     # primary button fill and the CH1 trace, identical in both modes
+      ch1:            "{brand.500}"
+      ch2:            "{cyan.400}"
+      ch3:            "{magenta.400}"
+      screen:         "{neutral.950}"   # the scope screen
+      graticule:      "{neutral.800}"
+    light:
+      background:     "{neutral.50}"
+      surface1:       "{neutral.100}"
+      surface2:       "{neutral.200}"
+      surface3:       "{neutral.300}"
+      border:         "{neutral.200}"
+      border_visible: "{neutral.300}"
+      text1:          "{neutral.950}"
+      text2:          "{neutral.700}"
+      text3:          "{neutral.600}"
+      text4:          "{neutral.400}"
+      accent:         "{brand.700}"
+      accent_hover:   "{brand.800}"
+      accent_subtle:  "{brand.50}"
+      on_accent:      "{neutral.950}"
+      trace:          "{brand.500}"     # the primary button keeps the yellow fill in light mode
+      ch1:            "{brand.500}"     # on the scope screen, which stays dark in both modes
+      ch2:            "{cyan.400}"
+      ch3:            "{magenta.400}"
+      screen:         "{neutral.950}"   # the scope screen never turns light
+      graticule:      "{neutral.800}"
+    success:    { light: "{green.700}", dark: "{green.500}" }
+    warning:    { light: "{amber.700}", dark: "{amber.500}" }
+    error:      { light: "{red.700}",   dark: "{red.500}" }
+    success_bg: { light: "{green.50}", dark: "{green.900}" }
+    warning_bg: { light: "{amber.50}", dark: "{amber.900}" }
+    error_bg:   { light: "{red.50}",   dark: "{red.900}" }
+    channel_text_light:                # channel colors used as TEXT on light surfaces
+      ch1: "{brand.700}"
+      ch2: "{cyan.700}"
+      ch3: "{magenta.700}"
+
+  spacing:
+    2xs: 2
+    xs:  4
+    sm:  8
+    md:  16
+    lg:  24
+    xl:  32
+    2xl: 48
+    3xl: 64
+    4xl: 96
+
+  radii:
+    element:   2      # checkboxes, tags, lamps
+    control:   2      # buttons, inputs, segmented controls
+    component: 4      # panels, readout tiles, cards
+    container: 4      # modals, popovers
+
+  typography:
+    display:
+      family: "IBM Plex Sans"
+      size:   "48px"
+      weight: 600
+      line_height: 1.05
+      letter_spacing: "-0.02em"
+      google_fonts: "IBM+Plex+Sans:wght@400;500;600"
+      fallback: "'Segoe UI', system-ui, sans-serif"
+    body:
+      family: "IBM Plex Sans"
+      size:   "15px"
+      weight: 400
+      line_height: 1.55
+      letter_spacing: "0em"
+      fallback: "'Segoe UI', system-ui, sans-serif"
+    mono:
+      family: "IBM Plex Mono"
+      size:   "13px"
+      weight: 400
+      google_fonts: "IBM+Plex+Mono:wght@400;500"
+      fallback: "Consolas, 'Cascadia Mono', ui-monospace, monospace"
+    scale:
+      display:    { size: "48px", line_height: 1.05, letter_spacing: "-0.02em", weight: 600, use: "Hero numbers, screen titles" }
+      heading:    { size: "28px", line_height: 1.2,  letter_spacing: "-0.01em", weight: 600, use: "Section headings, verdict lines" }
+      subheading: { size: "18px", line_height: 1.35, letter_spacing: "0em",     weight: 600, use: "Panel titles, card titles" }
+      body:       { size: "15px", line_height: 1.55, letter_spacing: "0em",     weight: 400, use: "Body text, descriptions" }
+      body_sm:    { size: "13px", line_height: 1.5,  letter_spacing: "0em",     weight: 400, use: "Secondary text, table cells" }
+      caption:    { size: "12px", line_height: 1.4,  letter_spacing: "0.01em",  weight: 400, use: "Units, timestamps, footnotes" }
+      label:      { size: "11px", line_height: 1.2,  letter_spacing: "0.08em",  weight: 500, use: "Panel legends, uppercase field labels" }
+    readout:      { family: "IBM Plex Mono", size: "32px", weight: 500, line_height: 1.0, letter_spacing: "-0.01em", use: "Instrument readouts (FPS, ms)" }
+
+  strokes:
+    caps: "butt"        # deliberate: traces, bars and progress fills end square like printed scale marks
+    trace_width: 1.5
+    rule_width: 1
+    notes: "Bench-instrument exception to hue's round-cap default. Every bar, gauge and trace ends square."
+
+  elevation:
+    strategy: "flat"
+    level1: { light: "none", dark: "none" }
+    level2: { light: "0 0 0 1px #C8C5BC", dark: "0 0 0 1px #3A3A36" }
+    level3: { light: "0 0 0 1px #C8C5BC, 0 12px 32px rgba(20,20,19,0.14)", dark: "0 0 0 1px #3A3A36, 0 12px 32px rgba(0,0,0,0.45)" }
+    notes: "Depth comes from surface steps and 1px borders. Only overlays (popover, modal) get a hard ring, and only modals add a soft drop to separate from the backdrop."
+
+  motion:
+    personality: "mechanical"
+    easing_fast: "ease-out"
+    easing_medium: "ease-out"
+    easing_slow: "cubic-bezier(0.2, 0, 0, 1)"
+    duration_fast: "100ms"
+    duration_normal: "160ms"
+    duration_slow: "220ms"
+    notes: "Click, not swoosh. No overshoot, no spring. The only continuous motion is the trace sweep while recording (linear)."
+
+  # Hero stage: the scope screen
+  hero_stage:
+    preset: "grid-on-dark"
+    observed_style:
+      description: "An oscilloscope graticule (10 by 8 major divisions with fine minor ticks) on the darkest graphite, edges fading out. A yellow frame-time trace runs across the screen with one tall spike, and cyan and magenta channels run lower and calmer. The yellow trace has a faint phosphor bloom; nothing else glows."
+      where_used: ["landing hero", "final CTA (background only)", "scope strips in the app"]
+    background:
+      medium: "pattern"
+      color_mode: "monochrome"
+      saturation: "flat"
+      light_source: "center"
+      falloff: "soft"
+      vignette: "subtle"
+      texture: "clean"
+      motion: "static"
+      intensity: "subtle"
+      safe_zone: "masked-for-text"
+      color_palette: ["#141413", "#1C1C1A", "#252522", "#3A3A36", "#F5C518"]
+      pattern_recipe: "line-graticule"
+      pattern_params:
+        major_cell: "64px"
+        minor_cell: "16px"
+        major_color: "rgba(140, 138, 131, 0.22)"
+        minor_color: "rgba(140, 138, 131, 0.08)"
+    hero:
+      subject: "composition"
+      form: "scope-trace"        # three channel polylines across the graticule + channel legend
+      placement: "center"
+      scale: "dominant"
+      tint: "accent"
+    relation:
+      type: "glow"
+      bleed: 15
+    disclaimer: "Fictional rendering. The trace is drawn with SVG from a real CS2 capture shape; it is decorative, not live data."
+
+  iconography:
+    observed_style:
+      description: "Frametrace has no icon set of its own. Intended style: thin geometric outline icons like panel engravings, used sparingly next to labels. Labels and numbers do the work."
+      stroke_weight: "regular"
+      corner_treatment: "soft"
+      fill_style: "outline"
+      form_language: "geometric"
+      visual_density: "balanced"
+    fallback_kit:
+      name: "Tabler Icons"
+      weight: "outline (1.5px)"
+      match_score: "high"
+      match_reasoning: "Tabler's 1.5px outline matches the thin, technical engraving feel and it has the technical glyphs this domain needs (cpu, device-desktop, activity, wave-square, keyboard, clock). Lucide would be second choice, but its 2px stroke reads heavier than panel legends and it lacks several hardware glyphs."
+      cdn: "https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.41.1/dist/tabler-icons-300.min.css"
+      icon_class_prefix: "ti ti-"
+    disclaimer: "Icons are from Tabler Icons (MIT). Frametrace has no proprietary icon set."
+
+# ── COMPONENTS (all derived: new brand, no prior UI) ─────
+components:
+  button_primary:
+    source: "derived"
+    background: "{brand.500}"
+    color: "{neutral.950}"
+    border: "none"
+    radius: "{radii.control}"
+    height: 36
+    padding: "0 16px"
+    font_weight: 600
+    hover: { background: "{brand.400}" }
+    active: { background: "{brand.600}" }
+    justified_by: "One trace, one color: the main action is the only filled yellow element."
+  button_secondary:
+    source: "derived"
+    background: "{surface2}"
+    color: "{text1}"
+    border: "1px solid {border_visible}"
+    radius: "{radii.control}"
+    hover: { background: "{surface3}" }
+  button_ghost:
+    source: "derived"
+    background: "transparent"
+    color: "{text2}"
+    hover: { color: "{text1}", background: "{surface2}" }
+  button_destructive:
+    source: "derived"
+    background: "transparent"
+    color: "{error}"
+    border: "1px solid {error}"
+  readout:
+    source: "derived"
+    background: "{surface1}"
+    border: "1px solid {border}"
+    radius: "{radii.component}"
+    label: "label style, {text3}, with a 8px channel swatch when the value is a signal"
+    value: "readout type, {text1}"
+    unit: "caption, {text3}"
+    justified_by: "Numbers are instruments."
+  scope:
+    source: "derived"
+    background: "{screen}"
+    graticule: "{graticule}, 64px major / 16px minor"
+    trace_width: 1.5
+    legend: "CH1 FRAME TIME (yellow), CH2 GPU BUSY (cyan), CH3 CPU BUSY of the presenting thread (magenta)"
+    line_caps: "butt"
+    justified_by: "The scope screen is the brand's hero and stays dark in both modes, like a real instrument."
+  input:
+    source: "derived"
+    background: "{background}"
+    border: "1px solid {border_visible}"
+    focus: "1px solid {accent}"
+    radius: "{radii.control}"
+    height: 36
+  tag:
+    source: "derived"
+    background: "{surface2}"
+    color: "{text2}"
+    radius: "{radii.element}"
+    font: "mono, 11px, uppercase, 0.04em"
+  lamp:
+    source: "derived"
+    size: 8
+    radius: "{radii.element}"
+    colors: "success / warning / error / text4 (idle)"
+    justified_by: "Status shows as a square indicator lamp, never a round dot."
+  tabs:
+    source: "derived"
+    active: "{text1} + 2px {accent} underline"
+    inactive: "{text3}"
+  table:
+    source: "derived"
+    header: "label style, {text3}, 1px {border_visible} bottom"
+    numbers: "mono, right-aligned"
+    row_selected: "{surface2} + 2px {accent} left edge"
+  toggle:
+    source: "derived"
+    track: "34x18, radius 2"
+    on: "{accent} track, {on_accent} square thumb"
+
+# ── APP SCREEN ──────────────────────────────────────────
+app_screen:
+  archetype: "dashboard"
+  frame: "desktop"
+  frame_params:
+    title: "Frametrace"
+    chrome: "windows-11"   # Frametrace is Windows-only: dark title bar, caption buttons on the right, no traffic lights
+  content_seed: "The Frametrace window after a 100 s CS2 capture (the Reflex On run from the CS2 test session). Top bar: wordmark, status lamp READY, hotkey hint, Start capture. Left rail: capture controls (hotkey F10, fixed length 100 s, game auto-detect, beep) and the list of eight captures from the session, one selected. Main: capture header with display-path tags, verdict (GPU-limited, 93% of frames), the scope strip with three channels and one hitch marker, five readouts (426.7 FPS, 1% low 169, CPU-side 1% low 199, PC latency 6.8 ms, P95 10.5 ms), the bottleneck split bar, the checks list, and the action row (Copy report, Open folder, Compare)."
+  required_tokens_checklist:
+    - "background, surface1, surface2, surface3, border, border_visible"
+    - "text1, text2, text3, text4"
+    - "accent, accent_subtle, on_accent, ch1, ch2, ch3, screen, graticule"
+    - "success, warning, error and their _bg tints"
+    - "mono for every number, label style for every legend"
+    - "radii.control, radii.component"
+
+# ── VOICE ───────────────────────────────────────────────
+voice:
+  tone: "bench engineer: measured, plain, specific. Numbers over adjectives. Never hype, never gamer slang."
+  cadence: "Short declaratives. Claim, then the number that backs it. Imperative verbs for actions (Press F10. Play. Paste.)."
+  samples:
+    - "Answers, not graphs."
+    - "Press F10. Play. Paste the report into any AI."
+    - "430 FPS is a number. 'Your GPU is the limit, and Reflex costs you 1%' is an answer."
+    - "Your RAM runs at 4800 MT/s. The kit is rated 6000. EXPO is off."
