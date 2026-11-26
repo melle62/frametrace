@@ -29,6 +29,7 @@ from frametrace import (
     hotkey,
     presentmon,
     report,
+    share,
     summary,
     sysinfo,
     theme,
@@ -74,6 +75,7 @@ DEFAULTS = {
     "goal": goals.DEFAULT_GOAL,
     "target_fps": "",
     "collapsed": [],  # capture groups folded shut in the list
+    "share": None,  # share captures with the dataset: None = not asked yet
 }
 LENGTHS = ["10", "20", "30", "60", "90", "100", "120", "180", "300"]
 TABS = ["Summary", "Report", "Game", "System", "Compare"]
@@ -124,6 +126,10 @@ class App:
         self.closed = False
         self.pm_status = ("idle", "PresentMon", "checking")
         self.trace_status = ("idle", "Trace access", "checking")
+        self.sharer = share.Sharer()
+        self.share_busy = False  # a sync runs on a worker thread
+        self.share_again = False  # something changed while it ran
+        self.share_status = self._share_status()
 
         theme.set_scale(root)
         root.title("Frametrace")
@@ -149,6 +155,7 @@ class App:
         self.theme_var = tk.StringVar(value=self.settings.get("theme", "dark"))
         self.goal_var = tk.StringVar(value=goals.get(self.settings.get("goal")).label)
         self.target_var = tk.StringVar(value=str(self.settings.get("target_fps") or ""))
+        self.share_var = tk.BooleanVar(value=self.sharing())
         self.hotkey_note = ("", "text3")
 
         self.build()
@@ -158,6 +165,7 @@ class App:
         threading.Thread(target=self._load_system, daemon=True).start()
         self.check_setup()
         self.refresh_history(select_first=True)
+        self.kick_share()
         self.poll_job = root.after(100, self.poll)
 
     def _set_icon(self) -> None:
@@ -359,6 +367,10 @@ class App:
         Check(sec, t, "Beep on start and stop", self.sound_var, self.save).pack(
             anchor="w", pady=(px(12), 0)
         )
+        if self.sharer.available:
+            Check(sec, t, "Share captures with the dataset", self.share_var, self.apply_share).pack(
+                anchor="w", pady=(px(6), 0)
+            )
 
         rule(rail, t).pack(fill="x")
         foot = frame(rail, t)
@@ -781,6 +793,7 @@ class App:
             self.captures = [(f, updated if f == folder else r) for f, r in self.captures]
         self.render_rail()
         self.render_main()
+        self.kick_share()
         if failed:
             self.show_note(f"Couldn't save {failed} of {len(folders)}.", "")
 
@@ -882,7 +895,10 @@ class App:
         t = self.t
         for child in self.foot.winfo_children():
             child.destroy()
-        for level, name, value in (self.pm_status, self.trace_status):
+        rows = [self.pm_status, self.trace_status]
+        if self.sharer.available:
+            rows.append(self.share_status)
+        for level, name, value in rows:
             r = frame(self.foot, t)
             r.pack(fill="x", pady=px(2))
             Lamp(r, t, level).pack(side="left", padx=(0, px(8)))
@@ -894,6 +910,10 @@ class App:
                 self.foot, t, line, font="mono_xs", fg="text3", wraplength=px(260),
                 justify="left", anchor="w",
             ).pack(fill="x", pady=(px(8), 0))  # fmt: skip
+        if self.sharer.available and self.sharer.has_shared:
+            FlatButton(
+                self.foot, t, "Delete my shared data", self.ask_forget, "ghost", small=True
+            ).pack(anchor="w", pady=(px(6), 0))
 
     def system_line(self) -> str:
         info = self.system
@@ -927,7 +947,7 @@ class App:
             or (
                 ("error", self.capture_error, [("Dismiss", self.dismiss_error)])
                 if self.capture_error
-                else None
+                else self.consent_issue()
             )
         )
         if not issue:
@@ -1286,7 +1306,7 @@ class App:
         frame(v, t, "surface1", height=px(8)).pack()
 
         # what changed in the game between A and B
-        self._fill_settings_changes(page, a, b)
+        self._fill_settings_changes(page, a, b, fb)
 
         # scope: REF A under CH1 B
         sp = frame(page, t, "surface1", border="border")
@@ -1313,6 +1333,7 @@ class App:
         self.compare_scope.pack(fill="x", padx=px(16), pady=(0, px(16)))
         self.compare_folders = (fa, fb)
         self.draw_compare_scope()
+        self.note_comparison(fa, fb)
 
         # deltas
         d = frame(page, t, "surface1", border="border")
@@ -1422,7 +1443,7 @@ class App:
             frame(sy, t, "surface1", height=px(6)).pack()
         self.page_compare.to_top()
 
-    def _fill_settings_changes(self, page, a: dict, b: dict) -> None:
+    def _fill_settings_changes(self, page, a: dict, b: dict, fb: Path | None = None) -> None:
         """In-game settings that differ between A and B, read from the game's config."""
         t = self.t
         box = frame(page, t, "surface1", border="border")
@@ -1441,6 +1462,8 @@ class App:
             r.pack(fill="x", padx=px(16), pady=(0, px(14)))
             Lamp(r, t, "info" if changes is None else "ok").pack(side="left", padx=(0, px(10)))
             label(r, t, text, fg="text2", bg="surface1").pack(side="left")
+            if changes is None and fb is not None:
+                self._advice_row(box, fb, b)
             return
         mono = t.fonts["mono_sm"]
         key_w = max(mono.measure(k) for k, _, _ in changes) + px(24)
@@ -1460,6 +1483,36 @@ class App:
             label(r, t, "  →  ", font="mono_sm", fg="text4", bg="surface1").pack(side="left")
             label(r, t, vb, font="mono_sm", bg="surface1").pack(side="left")
         frame(box, t, "surface1", height=px(6)).pack()
+        if fb is not None:
+            self._advice_row(box, fb, b)
+
+    def _advice_row(self, box, fb: Path, b: dict) -> None:
+        """Who suggested the changes: kept with B, and shared with the dataset when sharing is on
+        (which AI's advice works is one of the things the data should show)."""
+        t = self.t
+        rule(box, t).pack(fill="x", padx=px(16))
+        r = frame(box, t, "surface1")
+        r.pack(fill="x", padx=px(16), pady=(px(8), px(12)))
+        label(r, t, "Changes suggested by", fg="text2", bg="surface1").pack(
+            side="left", padx=(0, px(12))
+        )
+        current = (b.get("user") or {}).get("advice") or ""
+        var = tk.StringVar(value=current or "—")
+        box_ = ttk.Combobox(
+            r,
+            textvariable=var,
+            values=["—", *share.ADVICE],
+            state="readonly",
+            width=18,
+            font=t.fonts["body_sm"],
+        )
+        box_.pack(side="left")
+
+        def chosen(_e=None) -> None:
+            value = var.get()
+            self._save_user([fb], advice=None if value == "—" else value)
+
+        box_.bind("<<ComboboxSelected>>", chosen)
 
     def _silk_width(self, names) -> int:
         """Widest silk-screen label among names, in pixels (column for label/value rows)."""
@@ -1703,6 +1756,112 @@ class App:
             except Exception:  # a broken CSV must not break the window  # noqa: BLE001
                 tr = None
             self.events.put(("trace", {"folder": folder, "trace": tr}))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    # --- sharing with the dataset -------------------------------------------------------------
+
+    def sharing(self) -> bool:
+        """On, and agreed to for what this version shares."""
+        return (
+            self.sharer.available
+            and self.settings.get("share") is True
+            and int(self.settings.get("share_version") or 0) >= share.CONSENT_VERSION
+        )
+
+    def _share_status(self, outcome: share.Outcome | None = None) -> tuple[str, str, str]:
+        if not self.sharing():
+            return ("idle", "Sharing", "off")
+        if outcome and outcome.error:
+            return ("warn", "Sharing", "retries later")
+        if self.share_busy:
+            return ("info", "Sharing", "sending")
+        total = outcome.total if outcome else self.sharer.total
+        return ("ok", "Sharing", f"{total} shared")
+
+    def consent_issue(self) -> tuple[str, str, list] | None:
+        """Asked once: share captures and comparisons with the Frametrace dataset?"""
+        if not self.sharer.available or self.sharing() or self.settings.get("share") is False:
+            return None
+        return (
+            "info",
+            (
+                "Help build Frametrace's game skills: share your captures and comparisons,"
+                " the ones already saved included, with the open Frametrace dataset? Sent:"
+                " frame times, the game and its settings, your hardware and Windows settings."
+                " Never sent: names, account IDs, file paths or the other apps you had open."
+                " Turn it off or delete what you shared at any time."
+            ),
+            [("Share", self.consent_yes), ("Don't share", self.consent_no),
+             ("What's sent", self.open_privacy)],
+        )  # fmt: skip
+
+    def consent_yes(self) -> None:
+        self.share_var.set(True)
+        self.apply_share()
+        self.show_note("Sharing is on. Thank you!", "")
+
+    def consent_no(self) -> None:
+        self.share_var.set(False)
+        self.apply_share()
+
+    def open_privacy(self) -> None:
+        import webbrowser
+
+        webbrowser.open(share.PRIVACY_URL)
+
+    def apply_share(self) -> None:
+        self.settings["share"] = bool(self.share_var.get())
+        if self.settings["share"]:
+            self.settings["share_version"] = share.CONSENT_VERSION
+        save_settings(self.settings)
+        self.share_status = self._share_status()
+        self.render_setup()
+        self._render_foot()
+        self.kick_share()
+
+    def kick_share(self) -> None:
+        """Send whatever changed since the last sync, on a worker thread."""
+        if not self.sharing():
+            return
+        if self.share_busy:
+            self.share_again = True
+            return
+        self.share_busy, self.share_again = True, False
+        captures = list(self.captures)
+
+        def work() -> None:
+            outcome = self.sharer.sync(captures)
+            self.events.put(("shared", {"outcome": outcome}))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def note_comparison(self, fa: Path, fb: Path, copied: bool = False) -> None:
+        if self.sharing():
+            self.sharer.note_pair(fa, fb, self.goal_key(), self.target_fps(), copied=copied)
+            self.kick_share()
+
+    def ask_forget(self) -> None:
+        self.confirm = (
+            (
+                "Delete everything you've shared and turn sharing off? It's removed from the"
+                " inbox now and from the public dataset at its next daily export. Copies other"
+                " people already downloaded can't be recalled, but they can't be linked to you."
+            ),
+            [("Delete", self.do_forget), ("Cancel", self.cancel_confirm)],
+        )
+        self.render_setup()
+
+    def do_forget(self) -> None:
+        self.confirm = None
+        self.render_setup()
+
+        def work() -> None:
+            try:
+                n = self.sharer.forget()
+                self.events.put(("forgot", {"deleted": n, "error": None}))
+            except Exception as e:  # a failed delete must be reported, never lost  # noqa: BLE001
+                self.events.put(("forgot", {"deleted": 0, "error": str(e)}))
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -2003,6 +2162,7 @@ class App:
             self.set_status()
             self.shown_text = p["report"]
             self.copy_shown(note="Report copied to the clipboard.")
+            self.kick_share()
         elif kind == "error":
             if self.sound_var.get():
                 capture.beep("error")
@@ -2013,6 +2173,24 @@ class App:
             self.set_status()
         elif kind == "system":
             self.system = p["info"]
+            self._render_foot()
+        elif kind == "shared":
+            self.share_busy = False
+            self.share_status = self._share_status(p["outcome"])
+            self._render_foot()
+            if self.share_again:
+                self.kick_share()
+        elif kind == "forgot":
+            if p["error"]:
+                self.capture_error = "Couldn't delete your shared data: " + p["error"]
+                self.render_setup()
+            else:
+                n = p["deleted"]
+                self.share_var.set(False)  # turning it on again starts over with a new ID
+                self.settings["share"] = False
+                save_settings(self.settings)
+                self.show_note(f"Deleted {n} shared item{'s' if n != 1 else ''}. Sharing is off.", "")
+            self.share_status = self._share_status()
             self._render_foot()
         elif kind == "trace":
             self.traces[p["folder"]] = p["trace"]
@@ -2051,6 +2229,8 @@ class App:
             return
         self._to_clipboard(self.shown_text)
         what = "Comparison" if self.shown == "Compare" else "Report"
+        if self.shown == "Compare" and len(getattr(self, "compare_folders", ())) == 2:
+            self.note_comparison(*self.compare_folders, copied=True)
         self.show_note(
             note or f"{what} copied to the clipboard.", f"{len(self.shown_text):,} chars"
         )

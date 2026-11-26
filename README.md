@@ -108,6 +108,14 @@ Captures are saved in `Documents\Frametrace\captures` and listed on the left, gr
 a group's heading to fold it; right-click it to rename the group or delete its captures. Deleted
 captures go to the Recycle Bin.
 
+**Sharing (optional).** On first start the window asks whether to share your captures and
+comparisons with the open [Frametrace dataset](https://github.com/melle62/frametrace-data). It
+sends the measurements, the game and its settings, and your hardware, never names, account IDs,
+file paths or the other apps you had open. The reliable runs end up as **Community data** in the
+game skills, so the AI can see what a setting costs on hardware like yours. Turn it off or
+delete what you shared at any time from the left rail. Details: [PRIVACY.md](PRIVACY.md) and
+[docs/data.md](docs/data.md).
+
 | Keys | |
 |---|---|
 | <kbd>F10</kbd> | start or stop a capture, in any game, even fullscreen |
@@ -121,6 +129,7 @@ captures go to the Recycle Bin.
 Command line: `python -m frametrace report capture.csv` analyzes an existing PresentMon CSV,
 and `python -m frametrace compare before after` compares two saved captures. Both take
 `--goal avg_fps|lows|latency|stutter|target` and `--target 144`.
+`python -m frametrace share-preview <capture folder>` prints exactly what sharing would send.
 
 For PresentMon details (CSV formats, permissions, anti-cheat), see
 [docs/presentmon.md](docs/presentmon.md).
@@ -146,10 +155,13 @@ frametrace/          core package, game-agnostic (no game-specific code, ever)
   process.py         foreground process + automatic game detection
   presentmon.py      locating and driving PresentMon
   download.py        PresentMon download with hash check
+  share.py           opt-in sharing: what's sent (and scrubbed), upload, delete
+  quality.py         how far a shared capture, comparison or contributor can be trusted
   assets/            window icon; fonts/: IBM Plex Sans and Mono (SIL OFL 1.1)
 design/              the Frametrace design system (hue skill: tokens, components, previews)
 skills/              AI skills: a general one, one per tested game (CS2), the template
-tools/               setup, probe, icon and README image scripts (brand.py, window_shots.py)
+tools/               setup, probe, icon and README image scripts; aggregate.py (dataset → skills)
+server/              the data inbox (Supabase migrations and edge functions)
 tests/               pytest suite and fixtures
 docs/                design notes, findings, README images (docs/brand)
 bin/                 PresentMon goes here (not committed)
@@ -169,6 +181,8 @@ bin/                 PresentMon goes here (not committed)
 - [x] Skills: a general one with game studies, and a CS2 skill ([skills](skills/README.md))
 - [ ] Game skills for DayZ, Forza Horizon 6 and more, from game studies
 - [ ] Skills tested with real reports in several AIs
+- [x] Opt-in data collection: the [dataset](https://github.com/melle62/frametrace-data), quality
+  scoring, community data in the game skills ([docs/data.md](docs/data.md))
 - [ ] Packaged `.exe` release
 
 ## Design
@@ -184,6 +198,9 @@ it in both modes.
 
 The most valuable contributions don't need any Python:
 
+- **Your captures:** turn on sharing in the window and benchmark the way the skills describe
+  (a repeatable scene, two baseline runs, then one setting at a time). Trusted contributors'
+  runs go straight into the game skills.
 - **Probe results** from games and APIs we haven't covered yet
 - **Game skills:** study a game with the general skill (settings map, a repeatable scene,
   measured costs) and send the skill it drafts

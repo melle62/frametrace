@@ -1,6 +1,23 @@
 # Contributing to Frametrace
 
-Thanks for helping! There are three ways in, from easiest to most involved.
+Thanks for helping! There are four ways in, from easiest to most involved.
+
+## 0. Share your captures (one click)
+
+Turn on **Share captures with the dataset** in the window (it asks on first start). Every
+capture and comparison goes to the public [Frametrace dataset](https://github.com/melle62/frametrace-data);
+see [PRIVACY.md](PRIVACY.md) for what is and isn't sent. All of it is kept, but only runs that
+pass the quality checks reach the game skills' **Community data** tables
+([docs/data.md](docs/data.md), "Quality"). To make yours count:
+
+- Label your runs (right-click > Rename, or <kbd>F2</kbd>), so a person and a script can tell a
+  baseline from a change.
+- Benchmark a repeatable scene, same length every time, at least 30 s.
+- Start with two runs at the same settings: an agreeing baseline pair is what makes you a
+  *trusted* contributor.
+- Then change **one** setting per run. Several changes at once are kept but never counted as a
+  setting's cost.
+- In Compare, answer "Changes suggested by", so the data can show whose advice works.
 
 ## 1. Share a probe result (no coding)
 
