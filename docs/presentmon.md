@@ -197,6 +197,9 @@ Reflex on), compared with CS2's own VProf output from the same run:**
   1.31 ms at P95 (−11%), at −0.9% average FPS. The present-to-present 1% low dropped from 202 to
   169 while the CPU-side 1% low only dropped from 205 to 199, so Reflex makes frame delivery a
   little less even. Under `fps_max 200` Reflex made no measurable difference.
+  Enabled + Boost (same section) went further: PC latency 6.30 ms median / 9.2 ms P95, at
+  414 FPS (−3.8% vs Off), with GPU time per frame unchanged and more frames left GPU-idle
+  (88% GPU-limited vs 95% with Reflex off).
 - *Stutter.* Comparing each frame with the capture-wide median flagged 2.1% of the time as
   spikes, but those were heavier scenes at about 200 FPS. Comparing each frame with its 30
   neighbours on each side found 12 real hitches (0.1% of the time). The report now uses the

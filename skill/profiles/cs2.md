@@ -31,11 +31,25 @@ last_verified: 2026-11-26
 
 ## NVIDIA Reflex
 - CS2 sends NVIDIA PC Latency markers in both Reflex modes, so Frametrace reports PC latency.
-- Measured A/B (same 78.7 s of the benchmark, 1440p, RTX 4070 Ti Super, GPU-limited at ~430 FPS):
-  Reflex On lowered PC latency by 0.4 ms median (7.25 → 6.83 ms, −6%) and 1.3 ms at P95
-  (11.8 → 10.5 ms, −11%). Average FPS fell 0.9%. The present-to-present 1% low fell from 202 to
-  169, while the CPU-side 1% low only fell from 205 to 199: Reflex makes frame delivery a little
-  less even.
+- Measured Off / Enabled / Enabled + Boost over the same 78.7 s of the benchmark (runs aligned to
+  within 0.25 s; 1440p, RTX 4070 Ti Super, GPU-limited, uncapped):
+
+  | | Off | Enabled | Enabled + Boost |
+  |---|---|---|---|
+  | Average FPS | 430.4 | 426.7 | 414.1 |
+  | PC latency, median | 7.25 ms | 6.83 ms | 6.30 ms |
+  | PC latency, P95 | 11.8 ms | 10.5 ms | 9.2 ms |
+  | 1% low, present to present | 202 | 169 | 154 |
+  | 1% low, CPU-side | 205 | 199 | 191 |
+  | GPU busy per frame | 2.08 ms | 2.09 ms | 2.08 ms |
+  | Blocked in Present | 1.36 ms | 1.23 ms | 0.95 ms |
+  | GPU-limited frames | 95% | 93% | 88% |
+
+  Each step trades a little FPS and frame-pacing evenness for lower latency, mostly in the worst
+  moments (P95 −2.6 ms from Off to Boost, about 0.7 of a refresh at 280 Hz). GPU time per frame
+  didn't change, so Boost's higher clocks don't matter when the GPU is already the limit. What
+  changed is pacing: with Boost the game holds frames back more, so the GPU queue stays shorter
+  and the GPU sits idle a little more often.
 - With `fps_max` capping well below what the GPU can do, Reflex had no measurable effect: the GPU
   was idle half of each frame, so there was no queue to remove.
 
