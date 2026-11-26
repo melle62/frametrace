@@ -15,21 +15,26 @@ python tools/probe_presentmon.py --label <game>-<api>
 Open an issue with the **Probe result** template and paste the generated `.md` summary. Add your
 notes: was the right game detected, any anti-cheat warnings, overlays on or off.
 
-## 2. Write a game profile (no coding)
+## 2. Study a game and write its skill (no coding)
 
-Profiles live in `skill/profiles/` and give the AI game-specific knowledge: which settings load
-the CPU and which load the GPU, engine quirks, built-in benchmarks and console commands. Start
-from `skill/profiles/_template.md`. A profile must be **optional**: Frametrace and the skill must
-give useful advice without one.
+Game skills live in `skills/frametrace-<game>/SKILL.md` and give the AI measured knowledge about
+one game: config key → menu name, what each setting costs, how to benchmark it repeatably, and
+its quirks. They come from a **game study**, which the general skill (`skills/frametrace`) runs
+with you: paste a report for the game, ask for a study, and follow its steps. It keeps a study log
+you can paste back in a later session, and drafts the skill from
+`skills/game-skill-template.md` once the data is there. See [skills/README.md](skills/README.md).
 
-Good profiles are factual and testable. Write "Grass quality is CPU-bound in cities, measured
-with Frametrace", not "turn everything to low".
+A skill must be **optional**: Frametrace and its reports must give useful advice without one.
+Good skills are factual and testable. Write "Grass quality is CPU-bound in cities, measured with
+Frametrace (run labels)", not "turn everything to low". Mark guide claims as "guide" with a link.
+The shared rules block in each skill is copied from the general skill: edit it there and run
+`python tools/sync_skills.py`.
 
 ## 3. Code
 
 Ground rules:
 
-- **No game-specific code in `frametrace/`.** Game knowledge belongs in profiles. The core works
+- **No game-specific code in `frametrace/`.** Game knowledge belongs in game skills. The core works
   from PresentMon data and system info only.
 - **Never hardcode PresentMon column names outside `frametrace/columns.py`.** Use the canonical
   names it defines.

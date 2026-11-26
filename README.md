@@ -148,7 +148,7 @@ frametrace/          core package, game-agnostic (no game-specific code, ever)
   download.py        PresentMon download with hash check
   assets/            window icon; fonts/: IBM Plex Sans and Mono (SIL OFL 1.1)
 design/              the Frametrace design system (hue skill: tokens, components, previews)
-skill/               the AI skill (SKILL.md) and optional per-game profiles
+skills/              AI skills: a general one, one per tested game (CS2), the template
 tools/               setup, probe, icon and README image scripts (brand.py, window_shots.py)
 tests/               pytest suite and fixtures
 docs/                design notes, findings, README images (docs/brand)
@@ -166,7 +166,9 @@ bin/                 PresentMon goes here (not committed)
 - [ ] Check the settings readers on real installs (CS2, an Unreal game, a Unity game)
 - [ ] More engine readers (Frostbite, RE Engine, id Tech, Creation Engine)
 - [ ] Real captures across DX11 / DX12 / Vulkan / OpenGL to calibrate thresholds
-- [ ] Skill (`skill/SKILL.md`) tested with real reports
+- [x] Skills: a general one with game studies, and a CS2 skill ([skills](skills/README.md))
+- [ ] Game skills for DayZ, Forza Horizon 6 and more, from game studies
+- [ ] Skills tested with real reports in several AIs
 - [ ] Packaged `.exe` release
 
 ## Design
@@ -183,7 +185,8 @@ it in both modes.
 The most valuable contributions don't need any Python:
 
 - **Probe results** from games and APIs we haven't covered yet
-- **Game profiles** for the skill: known CPU-heavy settings, engine quirks, built-in benchmarks
+- **Game skills:** study a game with the general skill (settings map, a repeatable scene,
+  measured costs) and send the skill it drafts
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
 
