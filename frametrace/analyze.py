@@ -23,6 +23,9 @@ SPIKE_FACTOR = 2.0
 SPIKE_MIN_EXTRA_MS = 4.0
 # High FPS where HAGS' GPU-busy overstatement matters (see docs)
 HIGH_FPS = 300
+# Leave out the start of a capture (trace start-up and the hotkey press can cause a hitch)
+SKIP_START_S = 1.0
+MIN_FOR_SKIP_S = 5.0
 
 
 def quantile(sorted_values: list[float], q: float) -> float:
@@ -98,6 +101,7 @@ class Analysis:
     stats: FrameStats
     bottleneck: Bottleneck
     display: Display
+    skipped_start_s: float = 0.0
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -162,7 +166,9 @@ def frame_stats(rows: list[dict]) -> FrameStats:
     )
 
 
-def bottleneck(rows: list[dict], stats: FrameStats | None = None) -> Bottleneck:
+def bottleneck(
+    rows: list[dict], stats: FrameStats | None = None, display: Display | None = None
+) -> Bottleneck:
     gpu, cpu, wait, total = 0, 0, 0, 0
     gpu_busy, cpu_busy, cpu_wait, ratios = [], [], [], []
     for r in rows:
@@ -196,17 +202,15 @@ def bottleneck(rows: list[dict], stats: FrameStats | None = None) -> Bottleneck:
     b = Bottleneck(
         available=True,
         frames=total,
-        gpu_pct=100 * gpu / total,
-        cpu_pct=100 * cpu / total,
-        wait_pct=100 * wait / total,
         median_gpu_busy_ms=_median(gpu_busy),
         median_cpu_busy_ms=_median(cpu_busy),
         median_cpu_wait_ms=_median(cpu_wait),
     )
     if b.median_gpu_busy_ms:
         b.gpu_fps_ceiling = 1000 / b.median_gpu_busy_ms
-    if b.median_cpu_busy_ms:
-        b.cpu_fps_ceiling = 1000 / b.median_cpu_busy_ms
+    # PresentMon's CPU busy covers only the thread that calls Present (often a render thread),
+    # not the game logic on other threads, so it can't give a CPU FPS ceiling.
+    b.cpu_fps_ceiling = None
 
     uniform = stats is not None and stats.p95_ms / stats.p5_ms < CAP_SPREAD
     if uniform and statistics.median(ratios) < CAP_MAX_GPU_RATIO:
@@ -216,10 +220,22 @@ def bottleneck(rows: list[dict], stats: FrameStats | None = None) -> Bottleneck:
             "an FPS cap or VSync is probably limiting, not the CPU or GPU."
         )
 
+    # Blocked in Present with VSync off and no cap: the only thing to wait for is the GPU
+    # (the flip queue is full). Calibrated on CS2, where VProf showed the game's main thread
+    # waiting too (LowLatencySleep and Frame Boundary).
+    vsync = display.vsync if display else None
+    if wait and not vsync and b.cap_fps is None:
+        b.notes.append(
+            f"{100 * wait / total:.0f}% of frames had the CPU blocked in Present with VSync off and no "
+            "cap. That means the GPU queue was full, so they count as GPU-limited."
+        )
+        gpu, wait = gpu + wait, 0
+
+    b.gpu_pct, b.cpu_pct, b.wait_pct = (100 * x / total for x in (gpu, cpu, wait))
     shares = {
         "GPU-limited": b.gpu_pct,
         "CPU-limited": b.cpu_pct,
-        "waiting (VSync/cap/queue)": b.wait_pct,
+        "waiting (VSync/cap)": b.wait_pct,
     }
     top, top_pct = max(shares.items(), key=lambda kv: kv[1])
     if b.cap_fps:
@@ -278,13 +294,25 @@ def display_info(rows: list[dict]) -> Display:
     )
 
 
-def analyze(rows: list[dict], app: str, pid: int) -> Analysis:
-    """Analyze the frames of one process (ideally its main swapchain)."""
+def analyze(rows: list[dict], app: str, pid: int, skip_start_s: float = SKIP_START_S) -> Analysis:
+    """Analyze the frames of one process (ideally its main swapchain).
+
+    The first skip_start_s seconds are left out: starting the trace and pressing the
+    hotkey can cause a hitch that isn't the game's fault.
+    """
+    skipped = 0.0
+    times = [r["time_s"] for r in rows if r.get("time_s") is not None]
+    if skip_start_s and times and times[-1] - times[0] >= MIN_FOR_SKIP_S:
+        cutoff = times[0] + skip_start_s
+        rows = [r for r in rows if r.get("time_s") is None or r["time_s"] >= cutoff]
+        skipped = skip_start_s
     stats = frame_stats(rows)
+    display = display_info(rows)
     return Analysis(
         app=app,
         pid=pid,
         stats=stats,
-        bottleneck=bottleneck(rows, stats),
-        display=display_info(rows),
+        bottleneck=bottleneck(rows, stats, display),
+        display=display,
+        skipped_start_s=skipped,
     )

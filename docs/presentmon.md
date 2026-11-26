@@ -145,16 +145,30 @@ which is the least intrusive option with anti-cheat software running.
 Each frame gets one class:
 
 - **GPU-limited:** `ms_gpu_busy / ms_frame_time >= 0.90`
-- **waiting:** otherwise, if the CPU waited (blocked in `Present()`) for at least 25% of the
-  frame (`ms_cpu_wait / ms_frame_time >= 0.25`). That points to VSync, a cap or a full queue.
+- **waiting:** otherwise, if the CPU was blocked in `Present()` for at least 25% of the frame
+  (`ms_cpu_wait / ms_frame_time >= 0.25`). With VSync off and no cap, the only thing Present can
+  wait for is a full GPU queue, so these frames count as **GPU-limited** after all. They stay
+  "waiting" only with VSync on or a detected cap.
 - **CPU-limited:** everything else
 
 The verdict is "mostly X" when one class has at least 70% of the frames, otherwise "mixed,
 leaning X". On top of that, a capture counts as **capped** when frame times are very uniform
 (P95 / P5 < 1.10) while the median GPU ratio is below 0.85. In-game limiters like `fps_max`
 sleep inside the game's frame, so they look like CPU time; the uniform frame times are what
-give them away. The report also gives FPS ceilings: 1000 / median GPU busy and
-1000 / median CPU busy.
+give them away. The first second of each capture is skipped, because starting the trace and
+pressing the hotkey can cause a hitch.
+
+**CPU busy only covers the presenting thread.** PresentMon measures the thread that calls
+`Present()`. In multithreaded engines that's a render thread, so game logic on other threads
+isn't included. The first real CS2 capture showed this: PresentMon reported 0.67 ms CPU busy,
+while CS2's own VProf showed over 1 ms of client rendering and simulation per frame on the main
+thread. So the report gives a GPU FPS ceiling (1000 / median GPU busy) but no CPU ceiling.
+
+**First calibration (CS2, 1440p, 7800X3D + RTX 4070 Ti Super, VSync off, Reflex on):**
+PresentMon showed GPU busy ≈ 90% of the mean frame time, and the presenting thread blocked in
+Present for 1.13 ms of a 1.82 ms median frame. VProf agreed that the main thread waited too
+(LowLatencySleep 0.25 ms, Frame Boundary 0.78 ms per frame). Both point to a GPU-paced game at
+about 500 FPS, which is why Present waits with VSync off now count as GPU-limited.
 
 All thresholds are module constants in `analyze.py` and are first estimates until real
 captures calibrate them.

@@ -160,7 +160,8 @@ def render(r: dict) -> str:
     cap, an, sysd = r["capture"], r["analysis"], r.get("system") or {}
     s, b, d = an["stats"], an["bottleneck"], an["display"]
     lines = [
-        f"Frametrace report · {cap['app']} · {_when(cap.get('started'))} · {s['duration_s']:.1f} s capture",
+        f"Frametrace report · {cap['app']} · {_when(cap.get('started'))} · {s['duration_s']:.1f} s analyzed"
+        + (f" (first {an['skipped_start_s']:.0f} s skipped)" if an.get("skipped_start_s") else ""),
         f"(Paste into any AI. Frametrace skill: {REPO_URL})",
         "",
         "## Performance",
@@ -186,12 +187,13 @@ def render(r: dict) -> str:
             f"Verdict: {b['verdict']}",
             (
                 f"Frames: GPU-limited {b['gpu_pct']:.0f}% | CPU-limited {b['cpu_pct']:.0f}%"
-                f" | waiting (VSync/cap/queue) {b['wait_pct']:.0f}%"
+                f" | waiting (VSync/cap) {b['wait_pct']:.0f}%"
             ),
             (
                 f"Median GPU busy {_f(b['median_gpu_busy_ms'], 2, ' ms')} (GPU alone could do ~{_f(b['gpu_fps_ceiling'], 0)} FPS)"
-                f" | CPU busy {_f(b['median_cpu_busy_ms'], 2, ' ms')} (~{_f(b['cpu_fps_ceiling'], 0)} FPS)"
-                f" | CPU wait {_f(b['median_cpu_wait_ms'], 2, ' ms')}"
+                f" | presenting thread: CPU busy {_f(b['median_cpu_busy_ms'], 2, ' ms')},"
+                f" blocked in Present {_f(b['median_cpu_wait_ms'], 2, ' ms')}"
+                " (game threads that don't present aren't measured)"
             ),
         ]
     lines += [f"Note: {n}" for n in b["notes"]]
@@ -282,7 +284,7 @@ COMPARE_ROWS = [
     ("GPU-limited frames (%)", ("bottleneck", "gpu_pct"), 0, None),
     ("CPU-limited frames (%)", ("bottleneck", "cpu_pct"), 0, None),
     ("Median GPU busy (ms)", ("bottleneck", "median_gpu_busy_ms"), 2, False),
-    ("Median CPU busy (ms)", ("bottleneck", "median_cpu_busy_ms"), 2, False),
+    ("Presenting-thread CPU busy (ms)", ("bottleneck", "median_cpu_busy_ms"), 2, False),
 ]
 
 SYSTEM_FIELDS = [

@@ -129,19 +129,30 @@ def test_frame_stats_basics():
 
 
 @pytest.mark.parametrize(
-    "gpu_frac,cpu_wait,expected",
+    "gpu_frac,cpu_wait,sync,expected",
     [
-        ((0.95, 0.99), 0.02, "GPU-limited"),
-        ((0.4, 0.6), 0.02, "CPU-limited"),
-        ((0.4, 0.6), 0.4, "waiting"),
+        ((0.95, 0.99), 0.02, 0, "GPU-limited"),
+        ((0.4, 0.6), 0.02, 0, "CPU-limited"),
+        # blocked in Present with VSync off: the GPU queue is full -> GPU-limited
+        ((0.4, 0.6), 0.4, 0, "GPU-limited"),
+        # blocked in Present with VSync on: waiting for the display
+        ((0.4, 0.6), 0.4, 1, "waiting"),
     ],
 )
-def test_bottleneck_verdicts(gpu_frac, cpu_wait, expected):
-    b = analyze.analyze(
-        make_rows(gpu_frac=gpu_frac, cpu_wait_frac=cpu_wait, jitter=0.2), "g", 1
-    ).bottleneck
+def test_bottleneck_verdicts(gpu_frac, cpu_wait, sync, expected):
+    rows = make_rows(gpu_frac=gpu_frac, cpu_wait_frac=cpu_wait, jitter=0.2, sync=sync)
+    b = analyze.analyze(rows, "g", 1).bottleneck
     assert b.available and expected in b.verdict
-    assert b.gpu_fps_ceiling and b.cpu_fps_ceiling
+    assert b.gpu_fps_ceiling and b.cpu_fps_ceiling is None  # no CPU ceiling: see analyze.py
+
+
+def test_first_second_is_skipped():
+    rows = make_rows(n=3000, ft=2.0, jitter=0.0)
+    rows[10]["ms_between_presents"] = 33.0  # start-up hitch
+    a = analyze.analyze(rows, "g", 1)
+    assert a.skipped_start_s == 1.0 and a.stats.max_ms == pytest.approx(2.0)
+    assert analyze.analyze(rows, "g", 1, skip_start_s=0).stats.max_ms == pytest.approx(33.0)
+    assert "first 1 s skipped" in report.render(report.build_result(a, sysinfo.SystemInfo(), {}))
 
 
 def test_cap_detected_when_frame_times_are_uniform():
