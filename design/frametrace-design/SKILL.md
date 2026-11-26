@@ -64,7 +64,7 @@ Squint test: with the screen blurred, the only bright things left must be the tr
 
 ### 2.5 Composition
 
-- Desktop windows use a left rail (240 px) for controls and history and a main column for the selected capture. The main column always reads top to bottom: header, verdict, screen, readouts, split bar, checks, actions.
+- Desktop windows use a left rail (about 300 px) for controls and history and a main column for the selected capture. The main column always reads top to bottom: header, verdict, screen, readouts, split bar, checks, actions.
 - The verdict is a sentence, not a badge: "GPU-limited. 93% of frames wait on the GPU."
 - Data tables right-align numbers and use mono. Selected rows get `--surface2` plus a 2 px `--accent` left edge.
 
