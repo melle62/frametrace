@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import math
 import tkinter as tk
+import tkinter.font as tkfont
 from collections.abc import Callable
 
 from frametrace.summary import number_runs
@@ -431,6 +432,11 @@ class RichText(tk.Text):
         if isinstance(n, tuple):
             n = n[0]
         n = max(1, n or 1)
+        # height counts lines at the font's line height; the gap between wrapped lines
+        # (spacing2) comes on top, so add enough lines to cover it or the last one is cut
+        gap = int(self.cget("spacing2")) * (n - 1)
+        line = tkfont.Font(font=self.cget("font")).metrics("linespace") or 1
+        n += -(-gap // line)
         if int(self.cget("height")) != n:
             self.configure(height=n)
 

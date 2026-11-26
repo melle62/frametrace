@@ -30,7 +30,19 @@ sys.path.insert(0, str(ROOT))
 
 import tkinter as tk
 
-from frametrace import analyze, gui, hotkey, presentmon, report, sysinfo, theme, trace
+from frametrace import (
+    analyze,
+    game,
+    gamesettings,
+    goals,
+    gui,
+    hotkey,
+    presentmon,
+    report,
+    sysinfo,
+    theme,
+    trace,
+)
 
 W, H = 1200, 820
 
@@ -127,13 +139,52 @@ def frames(
     return rows
 
 
-def write_capture(root: Path, name: str, started: str, rows: list[dict], ram_mts=5600) -> None:
+CS2 = game.GameInfo(
+    exe="cs2.exe", name="Counter-Strike 2", name_source="steam", store="Steam", store_id="730",
+    build="20864571", engine="Source 2", version="1.41.1.6",
+)  # fmt: skip
+CS2_VIDEO = [
+    ("defaultres", "2560"), ("defaultresheight", "1440"), ("fullscreen", "1"),
+    ("mat_vsync", "0"), ("msaa_samples", "4"), ("r_csgo_cmaa_enable", "0"),
+    ("videocfg_shadow_quality", "2"), ("videocfg_dynamic_shadows", "1"),
+    ("videocfg_texture_detail", "1"), ("r_texturefilteringquality", "5"),
+    ("shaderquality", "0"), ("videocfg_particle_detail", "1"), ("videocfg_ao_detail", "0"),
+    ("videocfg_hdr_detail", "3"), ("videocfg_fsr_detail", "0"), ("r_low_latency", "1"),
+]  # fmt: skip
+
+
+def cs2_settings(**changes) -> gamesettings.GameSettings:
+    return gamesettings.GameSettings(
+        "Source 2 video config",
+        r"C:\Program Files (x86)\Steam\userdata\<account>\730\local\cfg\cs2_video.txt",
+        [(k, changes.get(k, v)) for k, v in CS2_VIDEO],
+    )
+
+
+def write_capture(
+    root: Path,
+    name: str,
+    started: str,
+    rows: list[dict],
+    ram_mts=5600,
+    settings=None,
+    goal=None,
+    user=None,
+) -> None:
     app = rows[0]["app"]
+    info = CS2 if app == "cs2.exe" else game.GameInfo(exe=app)
+    if app == "DayZ_x64.exe":
+        info = game.GameInfo(exe=app, name="DayZ", name_source="version info", engine=None)
     result = report.build_result(
         analyze.analyze(rows, app, 7),
         demo_system(ram_mts),
         {"reason": "hotkey", "started": started, "requested_s": None},
+        game=info,
+        settings=settings,
+        goal=goal,
     )
+    if user:
+        result["user"] = user
     folder = root / name
     folder.mkdir(parents=True)
     (folder / "result.json").write_text(json.dumps(result), encoding="utf-8")
@@ -147,14 +198,19 @@ def demo_captures(root: Path) -> None:
     write_capture(
         root, "20261126-2241-cs2", "2026-11-26T22:41:00+01:00",
         frames(1, 100, 2.31, 0.94, 1.0, latency_ms=6.6, hitches=hitches),
+        settings=cs2_settings(videocfg_shadow_quality="1"), goal={"key": "lows"},
+        user={"label": "Shadows medium", "group": "Benchmark map"},
     )  # fmt: skip
     write_capture(
         root, "20261126-2234-cs2", "2026-11-26T22:34:00+01:00",
         frames(2, 100, 2.28, 0.94, 1.0, latency_ms=7.1, hitches=hitches[1:]),
+        settings=cs2_settings(), goal={"key": "lows"},
+        user={"label": "Baseline", "group": "Benchmark map"},
     )  # fmt: skip
     write_capture(
         root, "20261126-2211-cs2", "2026-11-26T22:11:00+01:00",
         frames(3, 60, 2.3, 0.5, 1.0, cap_fps=200),
+        settings=cs2_settings(), goal={"key": "target", "target_fps": 200},
     )  # fmt: skip
     write_capture(
         root, "20261126-2140-dayz", "2026-11-26T21:40:00+01:00",
@@ -231,6 +287,14 @@ def open_window(theme_name: str, captures: Path, setup_missing=False):
     return root, app
 
 
+def _shoot_and_close(root: tk.Tk, path: Path) -> None:
+    """Screenshot an open dialog, then close it with Escape."""
+    grab(root, path)
+    focus = root.focus_get()
+    if focus:
+        focus.event_generate("<Escape>")
+
+
 def shots(out: Path, themes: list[str], readme: bool) -> None:
     out.mkdir(parents=True, exist_ok=True)
     data = Path(tempfile.mkdtemp()) / "captures"
@@ -247,7 +311,7 @@ def shots(out: Path, themes: list[str], readme: bool) -> None:
         app.page_summary.canvas.yview_moveto(1.0)
         grab(root, out / f"{name}-summary-bottom.png")
         app.page_summary.canvas.yview_moveto(0.0)
-        for tab in ("Report", "System"):
+        for tab in ("Report", "Game", "System"):
             app.tabs.select(tab)
             grab(root, out / f"{name}-{tab.lower()}.png")
         folders = [f for f, _ in app.captures]
@@ -259,6 +323,25 @@ def shots(out: Path, themes: list[str], readme: bool) -> None:
         for i, tag in ((2, "capped"), (3, "cpu"), (4, "no-gpu")):
             app.select(folders[i], add=False)
             grab(root, out / f"{name}-{tag}.png")
+        app.ask_delete([folders[3]])
+        grab(root, out / f"{name}-confirm-delete.png")
+        app.cancel_confirm()
+        app.toggle_group("Benchmark map")
+        grab(root, out / f"{name}-group-folded.png")
+        app.toggle_group("Benchmark map")
+        root.after(400, _shoot_and_close, root, out / f"{name}-rename-dialog.png")
+        app.rename_capture(folders[0])
+        app.select(folders[3], add=False)
+        app.tabs.select("Game")
+        grab(root, out / f"{name}-game-unread.png")
+        app.tabs.select("Summary")
+        app.goal_var.set(goals.GOALS["target"].label)
+        app.target_var.set("144")
+        app.apply_goal()
+        grab(root, out / f"{name}-goal-target.png")
+        app.goal_var.set(goals.GOALS["avg_fps"].label)
+        app.target_var.set("")
+        app.apply_goal()
         app.select(folders[0], add=False)
         app.recorder = _Recording()
         app.handle("started", {"foreground": "cs2.exe"})

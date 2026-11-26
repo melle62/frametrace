@@ -9,6 +9,8 @@ import datetime as dt
 import re
 from dataclasses import dataclass
 
+from frametrace import goals
+
 PRESENT_MODE_SHORT = {
     "Hardware: Independent Flip": "INDEPENDENT FLIP",
     "Hardware Composed: Independent Flip": "COMPOSED FLIP",
@@ -42,14 +44,53 @@ def _num(v: float | None, digits: int = 1) -> str | None:
 
 def initials(app: str) -> str:
     stem = app.rsplit(".", 1)[0] if app.lower().endswith(".exe") else app
+    words = [w for w in re.split(r"[\s-]+", stem) if w and w[0].isalpha()]
+    if len(words) >= 2:  # "Counter-Strike 2" -> CS
+        return (words[0][0] + words[1][0]).upper()
     letters = [ch for ch in stem if ch.isalnum()]
     return "".join(letters[:2]).upper() or "?"
+
+
+def name(result: dict) -> str:
+    """The game's name when Frametrace found it, else the exe."""
+    return (result.get("game") or {}).get("name") or result["capture"]["app"]
+
+
+def label(result: dict) -> str | None:
+    """The user's own name for this run ("MSAA 2x"), if they gave one."""
+    return (result.get("user") or {}).get("label") or None
+
+
+def group(result: dict) -> str | None:
+    """The group the user put this run in, if any."""
+    return (result.get("user") or {}).get("group") or None
+
+
+def title(result: dict) -> str:
+    """What a run is called in the list and the header: its label, else the game."""
+    return label(result) or name(result)
+
+
+def rail_groups(captures: list[tuple]) -> list[tuple[str, bool, list[tuple]]]:
+    """(heading, custom, [(folder, result), ...]) for the captures list.
+
+    Runs go in the group the user gave them, else under their game. Groups are ordered
+    by their newest run (captures come in newest first), runs inside stay newest first.
+    """
+    order: dict[tuple[str, bool], list[tuple]] = {}
+    for folder, result in captures:
+        g = group(result)
+        key = (g, True) if g else (name(result), False)
+        order.setdefault(key, []).append((folder, result))
+    return [(heading, custom, rows) for (heading, custom), rows in order.items()]
 
 
 def subtitle(result: dict) -> str:
     cap, an = result["capture"], result["analysis"]
     s = an["stats"]
     parts = [
+        # a labelled run names its game here; otherwise the title is the game: show the exe
+        *([name(result)] if label(result) else [cap["app"]] if name(result) != cap["app"] else []),
         when(cap.get("started")),
         f"{s['duration_s']:.1f} s analyzed",
         f"{s['frames']:,} frames",
@@ -191,7 +232,7 @@ def rail_row(result: dict) -> tuple[str, str, str, str, str]:
     if s["duration_s"] < 10:
         sub, level = "short", "warn"
     meta = f"{when(cap.get('started'))} · {s['duration_s']:.0f} s"
-    return level, cap["app"], meta, f"{s['avg_fps']:.1f}", sub
+    return level, title(result), meta, f"{s['avg_fps']:.1f}", sub
 
 
 def system_rows(lines: list[str]) -> list[tuple[str, str]]:
@@ -316,7 +357,7 @@ class Delta:
         ch = self.change
         if ch is None:
             return "n/a"
-        return f"{ch:+.2f} pp" if self.absolute else f"{ch:+.1f}%"
+        return f"{ch:+.{self.digits}f} pp" if self.absolute else f"{ch:+.1f}%"
 
 
 def compare_deltas(a: dict, b: dict) -> list[tuple[str, list[Delta]]]:
@@ -387,38 +428,113 @@ def number_runs(text: str) -> list[tuple[str, bool]]:
     return out
 
 
-def compare_verdict(a: dict, b: dict) -> tuple[str, list[tuple[str, str]], list[str]]:
+def goal_deltas(a: dict, b: dict, target: int | None = None) -> dict[str, Delta]:
+    """Every compare delta by label, plus "Seconds at target" when there is a target."""
+    deltas = {d.label: d for _, rows in compare_deltas(a, b) for d in rows}
+    if target:
+        va = goals.seconds_at_target_pct(a["analysis"]["stats"], target)
+        vb = goals.seconds_at_target_pct(b["analysis"]["stats"], target)
+        if va is not None and vb is not None:
+            deltas["Seconds at target"] = Delta(
+                f"Seconds at {target} FPS", "%", va, vb, 0, True, 3.0, True
+            )
+    return deltas
+
+
+def goal_status(a: dict, b: dict, goal: goals.Goal, target: int | None) -> tuple[str, list[Delta]]:
+    """better, worse, same or na for the goal, and the deltas that decide it (first leads).
+
+    The first deciding metric both captures have sets the verdict. When it stays inside
+    run-to-run noise, the others can tip it, but only if they agree.
+    """
+    deltas = goal_deltas(a, b, target)
+    decide = [deltas[k] for k in goal.decides if k in deltas and deltas[k].status != "na"]
+    if not decide:
+        return "na", []
+    status = decide[0].status
+    if status == "same":
+        moved = {d.status for d in decide[1:] if d.status in ("better", "worse")}
+        if len(moved) == 1:
+            status = moved.pop()
+    return status, decide
+
+
+def compare_verdict(
+    a: dict, b: dict, goal: goals.Goal | None = None, target: int | None = None
+) -> tuple[str, list[tuple[str, str]], list[str]]:
     """(headline, [(status, phrase)], notes) for the compare view. A is the older capture.
 
-    The headline comes from the average; the items are the key metrics that moved beyond
-    run-to-run noise, better first. Numbers are wrapped in `ticks`: see runs() and plain().
+    The headline answers "did it help my goal?"; the items are the goal's metrics, then
+    other key metrics that moved beyond run-to-run noise (side effects). Numbers are wrapped
+    in `ticks`: see runs() and plain().
     """
-    deltas = {d.label: d for _, rows in compare_deltas(a, b) for d in rows}
-    avg = deltas.get("Average")
-    if avg and avg.status in ("better", "worse"):
-        word = "faster" if avg.status == "better" else "slower"
-        head = f"B is `{abs(avg.change):.1f}%` {word} on average."
-    else:
-        head = "Same average FPS."
-    key = [deltas[k] for k in KEY_METRICS if k in deltas and k != "Average"]
-    items = [("better", _phrase(d)) for d in key if d.status == "better"]
-    items += [("worse", _phrase(d)) for d in key if d.status == "worse"]
-    if not items:
-        items = [("same", "Lows, P99 and latency stayed inside run-to-run noise.")]
+    if goal is None:
+        goal, target = goals.from_result(b)
+        if goal.key == "target":
+            target = target or goals.default_target(b) or 60
+    status, decide = goal_status(a, b, goal, target)
+    phrase = goal.phrase if goal.key != "target" else f"holding {target} FPS"
+    head = {
+        "better": f"B is better for {phrase}.",
+        "worse": f"B is worse for {phrase}.",
+        "same": f"No clear change for {phrase}.",
+        "na": f"{goal.label} can't be measured in both captures.",
+    }[status]
+    items = [(d.status if d.status != "na" else "same", _phrase(d)) for d in decide]
+    deltas = goal_deltas(a, b, target)
+    shown = {d.label for d in decide}
+    side = [deltas[k] for k in KEY_METRICS if k in deltas and k not in shown]
+    items += [("better", _phrase(d)) for d in side if d.status == "better"]
+    items += [("worse", _phrase(d)) for d in side if d.status == "worse"]
     notes = []
+    if settings_unchanged_but_moved(a, b, target):
+        notes.append(
+            "Same in-game settings in A and B, yet the results moved: the difference comes from"
+            " the run itself (another start point, the first run after loading, background"
+            " activity), not from settings."
+        )
+    if goal.key == "latency" and "PC latency, median" not in shown and decide:
+        notes.append("No Reflex latency markers in both captures: judged by frame time.")
     la, lb = _limit(a), _limit(b)
     if la != lb and "unknown" not in (la, lb):
         name = {"GPU": "the GPU", "CPU": "the CPU", "wait": "VSync or a cap", "cap": "a frame cap"}
         notes.append(f"The limit moved from {name[la]} to {name[lb]}.")
     ca, cb = a["capture"], b["capture"]
     if ca.get("app") != cb.get("app"):
-        notes.append(f"Different games: A is {ca.get('app')}, B is {cb.get('app')}.")
+        notes.append(f"Different games: A is {name(a)}, B is {name(b)}.")
     da, db = a["analysis"]["stats"]["duration_s"], b["analysis"]["stats"]["duration_s"]
     if max(da, db) > 1.25 * min(da, db):
         notes.append(
             f"Different lengths ({da:.0f} s and {db:.0f} s): compare runs of the same scene."
         )
     return head, items, notes
+
+
+def settings_changes(a: dict, b: dict) -> list[tuple[str, str, str]] | None:
+    """(key, A, B) for in-game settings that differ; None when either capture has none.
+
+    When the two were read by different readers (an older Frametrace read fewer files),
+    only keys both have are compared, so a newly read file doesn't look like a change.
+    """
+    ga, gb = a.get("game_settings") or {}, b.get("game_settings") or {}
+    sa, sb = ga.get("settings"), gb.get("settings")
+    if not sa or not sb:
+        return None
+    da, db = dict(map(tuple, sa)), dict(map(tuple, sb))
+    keys = [k for k, _ in sa] + [k for k, _ in sb if k not in da]
+    if ga.get("reader") != gb.get("reader"):
+        keys = [k for k in keys if k in da and k in db]
+    return [(k, da.get(k, "-"), db.get(k, "-")) for k in keys if da.get(k) != db.get(k)]
+
+
+def settings_unchanged_but_moved(a: dict, b: dict, target: int | None = None) -> bool:
+    """Both captures' settings were read, none changed, and a key metric moved beyond noise."""
+    changes = settings_changes(a, b)
+    if changes is None or changes:
+        return False
+    deltas = goal_deltas(a, b, target)
+    keys = ("Average", "1% low", "0.1% low", "P99", "Time in hitches")
+    return any(deltas[k].status in ("better", "worse") for k in keys if k in deltas)
 
 
 def system_changes(a: dict, b: dict) -> list[tuple[str, str, str]]:
@@ -450,4 +566,83 @@ def system_changes(a: dict, b: dict) -> list[tuple[str, str, str]]:
     db = [f"{d['width']}x{d['height']} @ {d['refresh_hz']} Hz" for d in sb.get("displays") or []]
     if da != db:
         out.append(("Display", ", ".join(da) or "unknown", ", ".join(db) or "unknown"))
+    return out
+
+
+# --- goal and game ---------------------------------------------------------------------------
+
+SETTINGS_HINT = {
+    "GPU": "GPU-heavy settings move it: resolution, upscaling, shadows, lighting.",
+    "CPU": "CPU-heavy settings move it: view distance, crowds and objects, physics.",
+    "cap": "The cap or VSync sets the rate: change that first, spend the headroom on quality.",
+    "wait": "VSync or a cap sets the rate: change that first.",
+}
+
+
+def goal_verdict(result: dict, goal: goals.Goal, target: int | None) -> tuple[str, str]:
+    """(headline, sentence) for the Summary panel, led by the chosen goal.
+
+    The target goal leads with whether the target was met; the others keep the
+    bottleneck headline and add which kind of setting moves the goal.
+    """
+    head, sentence = verdict(result)
+    limit = _limit(result)
+    hint = SETTINGS_HINT.get(limit, "")
+    if goal.key == "target" and target:
+        s = result["analysis"]["stats"]
+        status = goals.target_status(s, target)
+        title = {
+            "above": f"Target {target} FPS met, with room.",
+            "met": f"Target {target} FPS met.",
+            "close": f"Target {target} FPS almost met.",
+            "short": f"Target {target} FPS not met.",
+        }[status]
+        at = goals.seconds_at_target_pct(s, target)
+        lead = f"1% low {s['p1_fps']:.0f} FPS, average {s['avg_fps']:.0f} FPS"
+        lead += f", {at:.0f}% of seconds at target." if at is not None else "."
+        return title, f"{lead} {head} {hint}".strip()
+    return head, f"{sentence} For {goal.phrase}: {hint}".strip() if hint else sentence
+
+
+def game_sections(result: dict) -> list[tuple[str, list[tuple[str, str]]]]:
+    """The Game tab: what was captured, then the in-game settings Frametrace could read."""
+    g, cap = result.get("game") or {}, result["capture"]
+    d = result["analysis"]["display"]
+    rows = [("Game", g.get("name") or "unknown")]
+    if g.get("store"):
+        rows.append(
+            ("Store", f"{g['store']} app {g.get('store_id') or '?'}"
+             + (f", build {g['build']}" if g.get("build") else ""))
+        )  # fmt: skip
+    rows += [
+        ("Executable", cap["app"]),
+        ("Version", g.get("version") or "unknown"),
+        ("Engine", g.get("engine") or "unknown"),
+        ("Graphics API", str(d.get("runtime") or "unknown").upper()),
+    ]
+    out = [("Captured game", rows)]
+    gs = result.get("game_settings") or {}
+    if gs.get("settings"):
+        out.append(
+            (
+                "In-game settings",
+                [("Read from", f"{gs.get('reader')}"), ("Source", str(gs.get("source")))]
+                + [(k, str(v)) for k, v in gs["settings"]],
+            )
+        )
+    else:
+        out.append(
+            (
+                "In-game settings",
+                [
+                    (
+                        "",
+                        (
+                            "Not read automatically for this game. The report asks the AI to get "
+                            "them from you: paste them or send a screenshot of the graphics menu."
+                        ),
+                    )
+                ],
+            )
+        )
     return out

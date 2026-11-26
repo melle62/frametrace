@@ -25,6 +25,7 @@ from tkinter import ttk
 from frametrace import (
     capture,
     download,
+    goals,
     hotkey,
     presentmon,
     report,
@@ -70,9 +71,13 @@ DEFAULTS = {
     "process_name": "",
     "sound": True,
     "theme": "dark",
+    "goal": goals.DEFAULT_GOAL,
+    "target_fps": "",
+    "collapsed": [],  # capture groups folded shut in the list
 }
 LENGTHS = ["10", "20", "30", "60", "90", "100", "120", "180", "300"]
-TABS = ["Summary", "Report", "System", "Compare"]
+TABS = ["Summary", "Report", "Game", "System", "Compare"]
+GOAL_LABELS = {g.label: g.key for g in goals.GOALS.values()}
 NOTE_MS = 2000  # how long a confirmation stays up
 
 
@@ -111,6 +116,8 @@ class App:
         self.loading: set[Path] = set()
         self.setup_issue: tuple[str, str, list] | None = None  # (level, text, buttons)
         self.capture_error: str | None = None
+        self.confirm: tuple[str, list] | None = None  # (text, buttons): a question in the banner
+        self.rail_order: list[Path] = []  # captures as the list shows them, for the arrow keys
         self.record_info: dict = {}
         self.note_job: str | None = None
         self.poll_job: str | None = None
@@ -140,6 +147,8 @@ class App:
         self.process_var = tk.StringVar(value=self.settings["process_name"])
         self.sound_var = tk.BooleanVar(value=self.settings["sound"])
         self.theme_var = tk.StringVar(value=self.settings.get("theme", "dark"))
+        self.goal_var = tk.StringVar(value=goals.get(self.settings.get("goal")).label)
+        self.target_var = tk.StringVar(value=str(self.settings.get("target_fps") or ""))
         self.hotkey_note = ("", "text3")
 
         self.build()
@@ -171,6 +180,8 @@ class App:
                 pass
         r.bind_all("<Up>", lambda e: self._key_move(e, -1), add="+")
         r.bind_all("<Down>", lambda e: self._key_move(e, 1), add="+")
+        r.bind_all("<F2>", lambda e: self._key_selected(e, self.rename_capture), add="+")
+        r.bind_all("<Delete>", lambda e: self._key_selected(e, self.ask_delete), add="+")
 
     @staticmethod
     def _typing(widget) -> bool:
@@ -193,10 +204,17 @@ class App:
         self.copy_shown()
         return "break"
 
+    def _key_selected(self, e, action) -> str | None:
+        """F2 / Delete on the selected capture, unless a text field has the keys."""
+        if self._typing(e.widget) or not self.selected:
+            return None
+        action(self.selected[-1])
+        return "break"
+
     def _key_move(self, e, step: int) -> str | None:
         if self._typing(e.widget) or not self.captures:
             return None
-        folders = [f for f, _ in self.captures]
+        folders = self.rail_order or [f for f, _ in self.captures]
         cur = self.selected[-1] if self.selected else None
         i = folders.index(cur) + step if cur in folders else 0
         if 0 <= i < len(folders):
@@ -263,8 +281,39 @@ class App:
         grid.pack(fill="x")
         grid.columnconfigure(1, weight=1)
 
-        label(grid, t, "Hotkey", fg="text2").grid(
+        label(grid, t, "Goal", fg="text2").grid(
             row=0, column=0, sticky="w", pady=px(4), padx=(0, px(12))
+        )
+        goal_box = ttk.Combobox(
+            grid,
+            textvariable=self.goal_var,
+            values=list(GOAL_LABELS),
+            state="readonly",
+            font=t.fonts["body_sm"],
+        )
+        goal_box.grid(row=0, column=1, sticky="ew", pady=px(4))
+        goal_box.bind("<<ComboboxSelected>>", lambda _e: self.apply_goal())
+        self.target_row = frame(grid, t)
+        self.target_row.grid(row=1, column=1, sticky="ew", pady=px(4))
+        target_label = label(grid, t, "Target", fg="text2")
+        target_label.grid(row=1, column=0, sticky="w", pady=px(4))
+        self.target_widgets = (target_label, self.target_row)
+        tentry = ttk.Entry(
+            self.target_row,
+            textvariable=self.target_var,
+            style="Mono.TEntry",
+            font=t.fonts["mono_sm"],
+            width=8,
+        )
+        tentry.pack(side="left", fill="x", expand=True, padx=(0, px(4)))
+        tentry.bind("<FocusOut>", lambda _e: self.apply_goal(), add="+")
+        tentry.bind("<Return>", lambda _e: self.apply_goal(), add="+")
+        placeholder(tentry, t, self.target_var, "empty = refresh rate")
+        label(self.target_row, t, "FPS", font="mono_sm", fg="text3").pack(side="left")
+        self._paint_target()
+
+        label(grid, t, "Hotkey", fg="text2").grid(
+            row=2, column=0, sticky="w", pady=px(4), padx=(0, px(12))
         )
         combo = ttk.Combobox(
             grid,
@@ -273,19 +322,19 @@ class App:
             width=12,
             font=t.fonts["mono_sm"],
         )
-        combo.grid(row=0, column=1, sticky="ew", pady=px(4))
+        combo.grid(row=2, column=1, sticky="ew", pady=px(4))
         combo.bind("<<ComboboxSelected>>", lambda _e: self.apply_hotkey())
         combo.bind("<Return>", lambda _e: self.apply_hotkey())
         combo.bind("<FocusOut>", lambda _e: self.apply_hotkey())
         self.hotkey_label = label(
             grid, t, "", font="caption", fg="warning", wraplength=px(190), justify="left"
         )
-        self.hotkey_label.grid(row=1, column=1, sticky="w", pady=(0, px(4)))
+        self.hotkey_label.grid(row=3, column=1, sticky="w", pady=(0, px(4)))
         self._show_hotkey_note()
 
-        label(grid, t, "Length", fg="text2").grid(row=2, column=0, sticky="w", pady=px(4))
+        label(grid, t, "Length", fg="text2").grid(row=4, column=0, sticky="w", pady=px(4))
         ln = frame(grid, t)
-        ln.grid(row=2, column=1, sticky="ew", pady=px(4))
+        ln.grid(row=4, column=1, sticky="ew", pady=px(4))
         Segmented(ln, t, [("Fixed", False), ("Manual", True)], self.manual_var, self.save).pack(
             side="left"
         )
@@ -299,11 +348,11 @@ class App:
         label(ln, t, "s", font="mono_sm", fg="text3").pack(side="left")
         self._paint_length()
 
-        label(grid, t, "Game", fg="text2").grid(row=3, column=0, sticky="w", pady=px(4))
+        label(grid, t, "Game", fg="text2").grid(row=5, column=0, sticky="w", pady=px(4))
         entry = ttk.Entry(
             grid, textvariable=self.process_var, style="Mono.TEntry", font=t.fonts["mono_sm"]
         )
-        entry.grid(row=3, column=1, sticky="ew", pady=px(4))
+        entry.grid(row=5, column=1, sticky="ew", pady=px(4))
         entry.bind("<FocusOut>", lambda _e: self.save(), add="+")
         entry.bind("<Return>", lambda _e: self.save(), add="+")
         placeholder(entry, t, self.process_var, "empty = auto-detect")
@@ -324,6 +373,34 @@ class App:
         self.count_label.pack(side="right")
         self.list = ScrollFrame(rail, t)
         self.list.pack(fill="both", expand=True, padx=(px(8), px(2)))
+
+    def _paint_target(self) -> None:
+        try:
+            for w in self.target_widgets:
+                if self.goal_key() == "target":
+                    w.grid()
+                else:
+                    w.grid_remove()
+        except tk.TclError:
+            pass
+
+    def goal_key(self) -> str:
+        return GOAL_LABELS.get(self.goal_var.get(), goals.DEFAULT_GOAL)
+
+    def target_fps(self) -> int | None:
+        """The typed target, or None (the report then uses the display's refresh rate)."""
+        try:
+            v = int(float(self.target_var.get()))
+        except ValueError:
+            return None
+        return v if 10 <= v <= 1000 else None
+
+    def apply_goal(self) -> None:
+        """A new goal re-renders the shown capture or comparison and is used for the next one."""
+        self._paint_target()
+        self.save()
+        if self.current_result() or len(self.selected) == 2:
+            self.render_main()
 
     def _paint_length(self) -> None:
         try:
@@ -388,6 +465,7 @@ class App:
         self.text.tag_configure("ok", foreground=t.c["success"], font=t.fonts["mono_head"])
         self.text.tag_configure("dim", foreground=t.c["text3"])
         self.page_system = ScrollFrame(self.pages, t)
+        self.page_game = ScrollFrame(self.pages, t)
         self.page_compare = ScrollFrame(self.pages, t)
         self.compare_scope: Scope | None = None
         self.shown = "Summary"
@@ -497,6 +575,7 @@ class App:
         for child in inner.winfo_children():
             child.destroy()
         self.count_label.configure(text=str(len(self.captures)))
+        self.rail_order = []
         if not self.captures:
             box = frame(inner, t)
             box.pack(fill="x", padx=px(8), pady=px(8))
@@ -504,13 +583,56 @@ class App:
             label(
                 box, t, "Each capture is saved here, newest first.", font="caption", fg="text3"
             ).pack(anchor="w", pady=(px(2), 0))
-        for folder, result in self.captures:
-            try:
-                level, name, meta, fps, sub = summary.rail_row(result)
-            except (KeyError, TypeError):
+        folded = set(self.settings.get("collapsed") or [])
+        for heading, custom, rows in summary.rail_groups(self.captures):
+            shut = heading in folded
+            self._group_head(inner, heading, custom, rows, shut)
+            if shut:
                 continue
-            self._rail_row(inner, folder, level, name, meta, fps, sub)
+            for folder, result in rows:
+                try:
+                    level, name, meta, fps, sub = summary.rail_row(result)
+                except (KeyError, TypeError):
+                    continue
+                self.rail_order.append(folder)
+                self._rail_row(inner, folder, level, name, meta, fps, sub)
         self._render_foot()
+
+    def _group_head(self, parent, heading: str, custom: bool, rows: list, shut: bool) -> None:
+        """A group's heading: chevron, name and count. Click folds it, right-click for more."""
+        t = self.t
+        head = tk.Frame(parent, bg=t.c["background"], cursor="hand2")
+        head.pack(fill="x", pady=(px(10), px(4)))
+        chev = tk.Canvas(
+            head, width=px(10), height=px(10), bg=t.c["background"], highlightthickness=0, bd=0
+        )
+        chev.pack(side="left", padx=(px(10), px(8)))
+        c, w = px(5), px(3)
+        pts = (
+            (c - 1, c - w, c + w - 1, c, c - 1, c + w)
+            if shut
+            else (c - w, c - 1, c, c + w - 1, c + w, c - 1)
+        )
+        chev.create_line(*pts, fill=t.c["text3"], width=max(1, px(1.5)), capstyle="projecting")
+        name = silk(head, t, heading, fg="text2" if custom else "text3")
+        name.pack(side="left")
+        count = label(head, t, str(len(rows)), font="mono_xs", fg="text4")
+        count.pack(side="right", padx=(0, px(12)))
+        for w in (head, chev, name, count):
+            w.bind("<Button-1>", lambda _e, h=heading: self.toggle_group(h))
+            w.bind(
+                "<Button-3>", lambda e, h=heading, r=rows, cu=custom: self._group_menu(e, h, r, cu)
+            )
+
+    def toggle_group(self, heading: str) -> None:
+        folded = list(self.settings.get("collapsed") or [])
+        if heading in folded:
+            folded.remove(heading)
+        else:
+            folded.append(heading)
+        self.settings["collapsed"] = folded
+        save_settings(self.settings)
+        self.render_rail()
 
     def _rail_row(self, parent, folder: Path, level, name, meta, fps, sub) -> None:
         t = self.t
@@ -571,18 +693,174 @@ class App:
             disabledforeground=t.c["text4"], font=t.fonts["body_sm"], activeborderwidth=0,
         )  # fmt: skip
         other = [f for f in self.selected if f != folder]
+        # with two runs selected and the click on one of them, group and delete act on both
+        targets = list(self.selected) if folder in self.selected else [folder]
+        both = f" ({len(targets)})" if len(targets) > 1 else ""
         m.add_command(label="Open folder", command=lambda: _open(folder))
         m.add_command(label="Copy report", command=lambda: self._copy_report_of(folder))
+        m.add_separator()
+        m.add_command(label="Rename…", command=lambda: self.rename_capture(folder))
+        sub = self._menu(m)
+        for g in self.custom_groups():
+            sub.add_command(label=g, command=lambda g=g: self.move_to_group(targets, g))
+        if self.custom_groups():
+            sub.add_separator()
+        sub.add_command(label="New group…", command=lambda: self.ask_group(targets))
+        sub.add_command(
+            label="Back under its game",
+            command=lambda: self.move_to_group(targets, None),
+            state="normal" if any(self._group_of(f) for f in targets) else "disabled",
+        )
+        m.add_cascade(label=f"Move to group{both}", menu=sub)
         m.add_separator()
         m.add_command(
             label="Compare with selected",
             command=lambda: self._compare_with(folder),
             state="normal" if other else "disabled",
         )
+        m.add_separator()
+        m.add_command(label=f"Delete{both}…", command=lambda: self.ask_delete(targets))
         try:
             m.tk_popup(event.x_root, event.y_root)
         finally:
             m.grab_release()
+
+    def _menu(self, parent=None) -> tk.Menu:
+        t = self.t
+        return tk.Menu(
+            parent or self.root, tearoff=0, bg=t.c["surface1"], fg=t.c["text1"], bd=1,
+            relief="flat", activebackground=t.c["surface2"], activeforeground=t.c["text1"],
+            disabledforeground=t.c["text4"], font=t.fonts["body_sm"], activeborderwidth=0,
+        )  # fmt: skip
+
+    def _group_menu(self, event, heading: str, rows: list, custom: bool) -> None:
+        m = self._menu()
+        folders = [f for f, _ in rows]
+        m.add_command(label="Rename group…", command=lambda: self.ask_group(folders, heading))
+        if custom:
+            m.add_command(
+                label="Ungroup (back under each game)",
+                command=lambda: self.move_to_group(folders, None),
+            )
+        m.add_separator()
+        m.add_command(
+            label=f"Delete all {len(folders)} captures…",
+            command=lambda: self.ask_delete(folders, heading),
+        )
+        try:
+            m.tk_popup(event.x_root, event.y_root)
+        finally:
+            m.grab_release()
+
+    # --- organizing captures -------------------------------------------------------------------
+
+    def custom_groups(self) -> list[str]:
+        """Groups the user made, newest first."""
+        seen: list[str] = []
+        for _, r in self.captures:
+            g = summary.group(r)
+            if g and g not in seen:
+                seen.append(g)
+        return seen
+
+    def _group_of(self, folder: Path) -> str | None:
+        try:
+            return summary.group(self.result_for(folder))
+        except StopIteration:
+            return None
+
+    def _save_user(self, folders: list[Path], **fields) -> None:
+        """Write label/group into each capture and refresh the list and the views."""
+        failed = 0
+        for folder in folders:
+            try:
+                updated = capture.save_user(folder, **fields)
+            except (OSError, ValueError):
+                failed += 1
+                continue
+            self.captures = [(f, updated if f == folder else r) for f, r in self.captures]
+        self.render_rail()
+        self.render_main()
+        if failed:
+            self.show_note(f"Couldn't save {failed} of {len(folders)}.", "")
+
+    def rename_capture(self, folder: Path) -> None:
+        try:
+            result = self.result_for(folder)
+        except StopIteration:
+            return
+        text = TextDialog.ask(
+            self,
+            "Rename capture",
+            "A label for this run, like the settings you changed. It shows in the list, the"
+            " report and comparisons. Leave it empty to show the game's name.",
+            summary.label(result) or "",
+        )
+        if text is not None:
+            self._save_user([folder], label=text)
+
+    def ask_group(self, folders: list[Path], current: str | None = None) -> None:
+        text = TextDialog.ask(
+            self,
+            "Rename group" if current else "New group",
+            f"A name for the group of {len(folders)} capture{'s' if len(folders) > 1 else ''},"
+            " like a test session or the setting you're tuning.",
+            current or "",
+            choices=[g for g in self.custom_groups() if g != current],
+        )
+        if text:
+            if current:  # keep a renamed group folded or open as it was
+                folded = [text if g == current else g for g in self.settings.get("collapsed", [])]
+                self.settings["collapsed"] = folded
+                save_settings(self.settings)
+            self.move_to_group(folders, text)
+
+    def move_to_group(self, folders: list[Path], group: str | None) -> None:
+        self._save_user(folders, group=group)
+
+    def ask_delete(self, folders: Path | list[Path], heading: str | None = None) -> None:
+        """Ask in the banner before deleting; the captures go to the Recycle Bin."""
+        folders = [folders] if isinstance(folders, Path) else list(folders)
+        if not folders:
+            return
+        if heading:
+            what = f"all {len(folders)} captures in {heading}"
+        elif len(folders) == 1:
+            r = self.result_for(folders[0])
+            what = f"{summary.title(r)} from {summary.when(r['capture'].get('started'))}"
+        else:
+            what = f"these {len(folders)} captures"
+        many = len(folders) > 1
+        if os.name == "nt":
+            where = f"The folder{'s go' if many else ' goes'} to the Recycle Bin."
+        else:
+            where = f"The folder{'s are' if many else ' is'} deleted for good."
+        self.confirm = (
+            f"Delete {what}? {where}",
+            [("Delete", lambda: self.delete_captures(folders)), ("Cancel", self.cancel_confirm)],
+        )
+        self.render_setup()
+
+    def cancel_confirm(self) -> None:
+        self.confirm = None
+        self.render_setup()
+
+    def delete_captures(self, folders: list[Path]) -> None:
+        self.confirm = None
+        root = self.captures_root or capture.DEFAULT_ROOT
+        done, failed = 0, 0
+        for folder in folders:
+            try:
+                capture.delete_capture(folder, root)
+                done += 1
+            except (OSError, capture.CaptureError):
+                failed += 1
+            self.traces.pop(folder, None)
+        self.selected = [f for f in self.selected if f not in folders]
+        self.render_setup()
+        self.refresh_history()
+        note = f"Deleted {done} capture{'s' if done != 1 else ''}."
+        self.show_note(note + (f" {failed} couldn't be deleted." if failed else ""), "")
 
     def _compare_with(self, folder: Path) -> None:
         other = [f for f in self.selected if f != folder]
@@ -594,7 +872,7 @@ class App:
 
     def _copy_report_of(self, folder: Path) -> None:
         try:
-            text = report.render(self.result_for(folder))
+            text = report.render(self.result_for(folder), self.goal_key(), self.target_fps())
         except StopIteration:
             return
         self._to_clipboard(text)
@@ -642,10 +920,15 @@ class App:
         t = self.t
         for child in self.banner.winfo_children():
             child.destroy()
-        issue = self.setup_issue or (
-            ("error", self.capture_error, [("Dismiss", self.dismiss_error)])
-            if self.capture_error
-            else None
+        issue = (
+            ("warn", self.confirm[0], self.confirm[1])
+            if self.confirm
+            else self.setup_issue
+            or (
+                ("error", self.capture_error, [("Dismiss", self.dismiss_error)])
+                if self.capture_error
+                else None
+            )
         )
         if not issue:
             self.banner.pack_forget()
@@ -688,10 +971,9 @@ class App:
                 [],
             )
         elif result:
-            cap = result["capture"]
             self._header(
-                summary.initials(cap["app"]),
-                cap["app"],
+                summary.initials(summary.name(result)),
+                summary.title(result),
                 summary.subtitle(result),
                 summary.tags(result),
             )
@@ -702,6 +984,7 @@ class App:
         self.tabs.set_disabled("Compare", not two)
         self.tabs.set_disabled("Report", not result)
         self.tabs.set_disabled("System", not result)
+        self.tabs.set_disabled("Game", not result)
         if not self.captures:
             hint = ""
         elif two:
@@ -802,7 +1085,8 @@ class App:
             self._paint_channels()
             return
 
-        head, sentence = summary.verdict(result)
+        goal, target = report.resolve_goal(result, self.goal_key(), self.target_fps())
+        head, sentence = summary.goal_verdict(result, goal, target)
         self._set_verdict(head, sentence)
         b = result["analysis"]["bottleneck"]
         if b.get("available"):
@@ -906,24 +1190,34 @@ class App:
 
     def show_tab(self, name: str) -> None:
         self.shown = name
-        for page in (self.page_summary, self.page_text, self.page_system, self.page_compare):
+        for page in (
+            self.page_summary,
+            self.page_text,
+            self.page_game,
+            self.page_system,
+            self.page_compare,
+        ):
             page.pack_forget()
         result = self.current_result()
         if name == "Summary":
             self.page_summary.pack(fill="both", expand=True)
-            self.shown_text = report.render(result) if result else ""
+            self.shown_text = self.report_text(result) if result else ""
         elif name == "Report" and result:
-            self.set_text(report.render(result))
+            self.set_text(self.report_text(result))
             self.page_text.pack(fill="both", expand=True)
         elif name == "Compare" and len(self.selected) == 2:
             (fa, a), (fb, b) = self.compare_pair()
             self.fill_compare(fa, a, fb, b)
             self.page_compare.pack(fill="both", expand=True)
-            self.shown_text = report.compare(a, b)
+            self.shown_text = report.compare(a, b, self.goal_key(), self.target_fps())
         elif name == "System" and result:
             self.fill_system(result)
             self.page_system.pack(fill="both", expand=True)
-            self.shown_text = report.render(result)
+            self.shown_text = self.report_text(result)
+        elif name == "Game" and result:
+            self.fill_game(result)
+            self.page_game.pack(fill="both", expand=True)
+            self.shown_text = self.report_text(result)
         self.copy_btn.set_text("Copy comparison" if name == "Compare" else "Copy report")
         self.compare_btn.set_enabled(len(self.selected) == 2 and name != "Compare")
 
@@ -955,7 +1249,7 @@ class App:
             cap, s = res["capture"], res["analysis"]["stats"]
             line = frame(chip, t, "surface1")
             line.pack(fill="x", padx=px(16))
-            label(line, t, cap["app"], bg="surface1").pack(side="left")
+            label(line, t, summary.title(res), bg="surface1").pack(side="left")
             label(line, t, f"{s['avg_fps']:.1f}", font="mono_sm", bg="surface1").pack(side="right")
             meta = f"{summary.when(cap.get('started'))} · {s['duration_s']:.0f} s · {s['frames']:,} frames"
             row2 = frame(chip, t, "surface1")
@@ -964,7 +1258,8 @@ class App:
             label(row2, t, "avg FPS", font="mono_xs", fg="text3", bg="surface1").pack(side="right")
 
         # verdict
-        head, items, notes = summary.compare_verdict(a, b)
+        goal, target = report.resolve_goal(b, self.goal_key(), self.target_fps())
+        head, items, notes = summary.compare_verdict(a, b, goal, target)
         v = frame(page, t, "surface1", border="border")
         v.pack(fill="x", pady=(0, px(8)))
         self._rich(v, head, "heading", "readout", "text1", "text1").pack(
@@ -989,6 +1284,9 @@ class App:
                 side="left", fill="x", expand=True
             )
         frame(v, t, "surface1", height=px(8)).pack()
+
+        # what changed in the game between A and B
+        self._fill_settings_changes(page, a, b)
 
         # scope: REF A under CH1 B
         sp = frame(page, t, "surface1", border="border")
@@ -1124,6 +1422,45 @@ class App:
             frame(sy, t, "surface1", height=px(6)).pack()
         self.page_compare.to_top()
 
+    def _fill_settings_changes(self, page, a: dict, b: dict) -> None:
+        """In-game settings that differ between A and B, read from the game's config."""
+        t = self.t
+        box = frame(page, t, "surface1", border="border")
+        box.pack(fill="x", pady=(0, px(8)))
+        silk(box, t, "In-game settings changed", bg="surface1").pack(
+            anchor="w", padx=px(16), pady=(px(12), px(8))
+        )
+        changes = summary.settings_changes(a, b)
+        if not changes:
+            text = (
+                "Not read for this game: tell the AI what you changed."
+                if changes is None
+                else "No change in the game's settings file."
+            )
+            r = frame(box, t, "surface1")
+            r.pack(fill="x", padx=px(16), pady=(0, px(14)))
+            Lamp(r, t, "info" if changes is None else "ok").pack(side="left", padx=(0, px(10)))
+            label(r, t, text, fg="text2", bg="surface1").pack(side="left")
+            return
+        mono = t.fonts["mono_sm"]
+        key_w = max(mono.measure(k) for k, _, _ in changes) + px(24)
+        for i, (key, va, vb) in enumerate(changes):
+            if i:
+                rule(box, t).pack(fill="x", padx=px(16))
+            r = frame(box, t, "surface1")
+            r.pack(fill="x", padx=px(16), pady=px(7))
+            Lamp(r, t, "info").pack(side="left", padx=(0, px(10)))
+            cell = frame(r, t, "surface1", width=key_w, height=px(18))
+            cell.pack(side="left")
+            cell.pack_propagate(False)
+            label(cell, t, key, font="mono_sm", fg="text2", bg="surface1", anchor="w").pack(
+                side="left"
+            )
+            label(r, t, va, font="mono_sm", fg="text3", bg="surface1").pack(side="left")
+            label(r, t, "  →  ", font="mono_sm", fg="text4", bg="surface1").pack(side="left")
+            label(r, t, vb, font="mono_sm", bg="surface1").pack(side="left")
+        frame(box, t, "surface1", height=px(6)).pack()
+
     def _silk_width(self, names) -> int:
         """Widest silk-screen label among names, in pixels (column for label/value rows)."""
         font = self.t.fonts["label"]
@@ -1233,14 +1570,39 @@ class App:
         self.text.yview_moveto(0)
         self.shown_text = text
 
+    def report_text(self, result: dict) -> str:
+        return report.render(result, self.goal_key(), self.target_fps())
+
     def fill_system(self, result: dict) -> None:
+        lines = report.render_system(result.get("system") or {})
+        self._fill_sections(self.page_system, summary.system_sections(lines))
+
+    def fill_game(self, result: dict) -> None:
+        self._fill_sections(
+            self.page_game, summary.game_sections(result), mono_keys={"In-game settings"}
+        )
+
+    def _fill_sections(self, page, sections, mono_keys: set[str] = frozenset()) -> None:
+        """Bordered sections of key/value rows (System and Game tabs)."""
         t = self.t
-        inner = self.page_system.inner
+        inner = page.inner
         for child in inner.winfo_children():
             child.destroy()
-        lines = report.render_system(result.get("system") or {})
-        sections = summary.system_sections(lines)
-        key_w = self._silk_width(k for _, rows in sections for k, _ in rows) + px(24)
+        mono = self.t.fonts["mono_sm"]
+        key_w = px(24) + max(
+            self._silk_width(
+                k for title, rows in sections if title not in mono_keys for k, _ in rows
+            ),
+            max(
+                (
+                    mono.measure(k)
+                    for title, rows in sections
+                    if title in mono_keys
+                    for k, _ in rows
+                ),
+                default=0,
+            ),
+        )
         for title, rows in sections:
             box = frame(inner, t, "surface1", border="border")
             box.pack(fill="x", pady=(0, px(8)))
@@ -1258,15 +1620,18 @@ class App:
                 r.pack(fill="x", padx=px(16), pady=px(8))
                 r.columnconfigure(0, minsize=key_w)
                 r.columnconfigure(1, weight=1)
-                silk(r, t, k, bg="surface1", anchor="w").grid(
-                    row=0, column=0, sticky="nw", pady=(px(2), 0)
-                )
+                if title in mono_keys and k not in ("Read from", "Source"):
+                    key = label(r, t, k, font="mono_sm", fg="text2", bg="surface1", anchor="w")
+                else:
+                    key = silk(r, t, k, bg="surface1", anchor="w")
+                key.grid(row=0, column=0, sticky="nw", pady=(px(2), 0))
                 fg = "text4" if v in ("unknown", "?") else "text1"
-                RichText(r, t, v, font="mono_sm", mono="mono_sm", fg=fg, mono_fg=fg).grid(
+                prose = "body_sm" if not k else "mono_sm"  # a note, not a value
+                RichText(r, t, v, font=prose, mono="mono_sm", fg=fg, mono_fg=fg).grid(
                     row=0, column=1, sticky="ew"
                 )
             frame(box, t, "surface1", height=px(6)).pack()
-        self.page_system.to_top()
+        page.to_top()
 
     # --- data ---------------------------------------------------------------------------------
 
@@ -1486,7 +1851,10 @@ class App:
     def current_settings(self) -> capture.CaptureSettings:
         length = None if self.manual_var.get() else self.length_seconds()
         return capture.CaptureSettings(
-            length_s=length, process_name=self.process_var.get().strip() or None
+            length_s=length,
+            process_name=self.process_var.get().strip() or None,
+            goal=self.goal_key(),
+            target_fps=self.target_fps(),
         )
 
     def length_seconds(self) -> int:
@@ -1572,6 +1940,8 @@ class App:
             manual=self.manual_var.get(),
             process_name=self.process_var.get().strip(),
             sound=self.sound_var.get(),
+            goal=self.goal_key(),
+            target_fps=self.target_fps() or "",
         )
         save_settings(self.settings)
         if self.recorder is None or self.recorder.state == "idle":
@@ -1748,6 +2118,65 @@ class App:
             except (OSError, subprocess.SubprocessError):
                 pass
         self.root.destroy()
+
+
+class TextDialog:
+    """A small modal question with one text field, in the window's theme."""
+
+    @staticmethod
+    def ask(
+        app: App, title: str, prompt: str, initial: str = "", choices: list[str] | None = None
+    ) -> str | None:
+        """The text entered (may be empty), or None when cancelled."""
+        t, root = app.t, app.root
+        win = tk.Toplevel(root, bg=t.c["background"])
+        win.title(title)
+        win.transient(root)
+        win.resizable(False, False)
+        win.bind("<Map>", lambda e: e.widget is win and theme.set_title_bar(win, t.dark, t.c))
+        body = frame(win, t)
+        body.pack(fill="both", padx=px(20), pady=(px(18), px(16)))
+        label(body, t, title, font="subheading", anchor="w").pack(fill="x")
+        label(body, t, prompt, fg="text2", wraplength=px(380), justify="left", anchor="w").pack(
+            fill="x", pady=(px(6), px(14))
+        )
+        var = tk.StringVar(value=initial)
+        if choices:
+            field = ttk.Combobox(body, textvariable=var, values=choices, font=t.fonts["body_sm"])
+        else:
+            field = ttk.Entry(body, textvariable=var, font=t.fonts["body_sm"])
+        field.pack(fill="x")
+        out: dict[str, str | None] = {"value": None}
+
+        def done(value: str | None) -> None:
+            out["value"] = value
+            win.grab_release()
+            win.destroy()
+
+        row = frame(body, t)
+        row.pack(fill="x", pady=(px(16), 0))
+        FlatButton(row, t, "Save", lambda: done(var.get().strip()), "primary", small=True).pack(
+            side="right"
+        )
+        FlatButton(row, t, "Cancel", lambda: done(None), "ghost", small=True).pack(
+            side="right", padx=(0, px(8))
+        )
+        win.bind("<Return>", lambda _e: done(var.get().strip()))
+        win.bind("<Escape>", lambda _e: done(None))
+        win.protocol("WM_DELETE_WINDOW", lambda: done(None))
+        win.update_idletasks()
+        x = root.winfo_rootx() + (root.winfo_width() - win.winfo_reqwidth()) // 2
+        y = root.winfo_rooty() + (root.winfo_height() - win.winfo_reqheight()) // 3
+        win.geometry(f"+{max(0, x)}+{max(0, y)}")
+        field.focus_set()
+        field.select_range(0, "end")
+        field.icursor("end")
+        try:
+            win.grab_set()
+        except tk.TclError:  # another grab (a menu) is still active
+            pass
+        root.wait_window(win)
+        return out["value"]
 
 
 def _open(path: Path) -> None:

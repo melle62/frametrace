@@ -8,10 +8,16 @@ last_verified: 2026-11-26
 ---
 
 ## Built-in benchmark
-- The community "FPS Benchmark" workshop map gives a repeatable fly-through of about 2 minutes.
+- The community "FPS Benchmark" workshop map by FPSfrequency gives a repeatable fly-through of
+  about 2 minutes. All the maintainer's CS2 captures so far were made on it.
   CS2 prints its own summary at the end (`[VProf] -- Performance report --`).
 - Two Frametrace runs on the same map lined up at a correlation of 0.996 and measured 440.3 vs
   441.2 FPS over the same 100 s: the map is very repeatable.
+- **Start every capture at the same moment.** Two fixed 79 s captures with identical settings,
+  started by hand, measured a 1% low of 214.6 and 163.6 FPS and 2 vs 316 hitch frames: they
+  covered different parts of the run (or one was the first pass after loading the map). Use
+  Manual length and press the hotkey on the same cue at start and end, and throw away the
+  first run after loading the map.
 - The run's intro and outro are light scenes at 600–1,000 FPS. A Frametrace capture that doesn't
   cover the whole run therefore reads a lower average than VProf. Compare Frametrace with
   Frametrace, started at the same moment and with the same length.
@@ -58,6 +64,55 @@ last_verified: 2026-11-26
   frames, GPU busy 97.6% of the time). The CPU has headroom.
 - PresentMon's "CPU busy" only covers CS2's render thread (about 0.7 ms per frame). VProf shows
   over 1 ms of main-thread work per frame (`Client Rendering`, `Client Simulation`).
+
+## Settings file
+Frametrace reads `cs2_video.txt` from `Steam\userdata\<account>\730\local\cfg\` (the newest
+one when several Steam accounts have played) and lists its `setting.*` entries. From the convar
+files in the same folder (`cs2_user_convars_0_slot0.vcfg`) and the install's
+`cs2_machine_convars.vcfg` it adds the rendering convars: names starting with `fps_max`, `r_`,
+`mat_` or `engine_low_latency`. That covers **Maximum FPS In Game** and **In Menus**; crosshair,
+binds, audio and HUD convars stay out.
+
+Checked against the Video settings page on the maintainer's PC (2026-11-26). "Seen" marks a value
+matched to the menu; the rest of each range follows the menu's order and is unverified.
+
+| Config key | Menu name | Values |
+|---|---|---|
+| `defaultres` × `defaultresheight` | Resolution | pixels; seen 1920 × 1440 |
+| `aspectratiomode` | Aspect Ratio | seen 0 with 1920 × 1440 (4:3) |
+| `fullscreen` / `nowindowborder` / `coop_fullscreen` | Display Mode | seen 0 / 1 / 1 |
+| `mat_vsync` | V-Sync | seen 0 = Disabled |
+| `msaa_samples` | Multisampling Anti-Aliasing Mode | seen 2 = 2X MSAA, 4 = 4X MSAA; 0 none, 8 = 8X |
+| `r_csgo_cmaa_enable` | Multisampling Anti-Aliasing Mode: CMAA2 | 1 when CMAA2 is chosen; seen 0 |
+| `videocfg_shadow_quality` | Global Shadow Quality | seen 2 = High; 0 Low, 1 Medium, 3 Very High |
+| `videocfg_dynamic_shadows` | Dynamic Shadows | seen 1 = All; 0 = Sun Only |
+| `videocfg_texture_detail` | Model / Texture Detail | seen 2 = High; 0 Low, 1 Medium |
+| `r_texturefilteringquality` | Texture Filtering Mode | seen 3 = Anisotropic 4X; 0 Bilinear, 1 Trilinear, 2 2X, 4 8X, 5 16X |
+| `shaderquality` | Shader Detail | seen 1 = High; 0 Low |
+| `videocfg_particle_detail` | Particle Detail | seen 0 = Low; 2 was the default (High) |
+| `videocfg_ao_detail` | Ambient Occlusion | seen 0 = Disabled; 2 was the default (likely High, 1 Medium) |
+| `videocfg_parallax_detail` | Parallax Occlusion Mapping | seen 1 = Enabled; 0 Disabled |
+| `videocfg_hdr_detail` | High Dynamic Range | seen -1 = Quality; 3 Performance |
+| `videocfg_fsr_detail` | FidelityFX Super Resolution | seen 0 = Disabled (Highest Quality); 1 Ultra Quality … 4 Performance |
+| `r_low_latency` | NVIDIA Reflex Low Latency | seen 0 = Disabled; 1 Enabled, 2 Enabled + Boost |
+| `fps_max` (convar) | Maximum FPS In Game | 0 = no cap; seen 0 in the menu |
+| `fps_max_ui` (convar) | Maximum FPS In Menus | seen 120 in the menu |
+| `r_player_visibility_mode` (convar) | Boost Player Contrast | 1 = Enabled (unverified key) |
+| `refreshrate_numerator` / `_denominator` | Refresh Rate | seen 0 / 0 |
+| `monitor_index`, `high_dpi`, `fullscreen_min_on_focus_loss` | display options | no effect on FPS |
+
+## Settings by goal
+- **Lower latency:** Reflex Enabled + Boost cut median PC latency 7.25 → 6.30 ms and P95
+  11.8 → 9.2 ms, for about 4% average FPS and lower present-to-present 1% lows (measured above).
+- **Higher 1% lows (present to present):** Reflex Off gave the highest (202 vs 154 with Boost).
+  The CPU-side lows moved less (205 vs 191).
+- **Particle Detail High → Low, MSAA 4X → 2X, Ambient Occlusion High → Disabled** (all three at
+  once; 1920 × 1440, GPU-limited, 79 s captures in a scene that isn't repeatable): GPU busy per
+  frame 2.31 → 2.03 ms (−12%), average 372 → 420 FPS, 1% low 147 → 164. The 1% low stayed at 39%
+  of the average and hitch time stayed around 3%, so these settings make every frame cheaper but
+  don't remove spikes. One run in between showed no hitches at all (1% low 215); a repeat with the
+  same settings didn't, so that run was the scene, not the settings.
+- Not measured yet: each of the three on its own, shadows, shader detail, HDR, FSR, a frame cap.
 
 ## CPU-heavy settings
 Not measured yet.

@@ -4,6 +4,8 @@ python -m frametrace                     open the Frametrace window
 python -m frametrace inspect CAPTURE.csv show how Frametrace reads a PresentMon CSV
 python -m frametrace report CAPTURE.csv  analyze a PresentMon CSV and print the report
 python -m frametrace compare A B         compare two captures (result.json or folders)
+
+Both take --goal (avg_fps, lows, latency, stutter, target) and --target FPS.
 """
 
 from __future__ import annotations
@@ -13,7 +15,7 @@ import json
 import sys
 from pathlib import Path
 
-from frametrace import __version__, analyze, columns, process, report, sysinfo
+from frametrace import __version__, analyze, columns, goals, process, report, sysinfo
 
 
 def cmd_inspect(path: str) -> int:
@@ -30,7 +32,13 @@ def cmd_inspect(path: str) -> int:
     return 0
 
 
-def cmd_report(path: str, process_name: str | None, with_system: bool) -> int:
+def cmd_report(
+    path: str,
+    process_name: str | None,
+    with_system: bool,
+    goal: str | None = None,
+    target: int | None = None,
+) -> int:
     """Analyze an existing PresentMon CSV (for example from an older capture)."""
     cmap, rows = columns.read_frames(path)
     presenters = process.summarize_presenters(rows)
@@ -48,7 +56,7 @@ def cmd_report(path: str, process_name: str | None, with_system: bool) -> int:
         sysinfo.collect() if with_system else sysinfo.SystemInfo(),
         {"reason": reason, "csv_schema": cmap.schema.value, "source": str(path)},
     )
-    print(report.render(result))
+    print(report.render(result, goal, target))
     return 0
 
 
@@ -69,20 +77,26 @@ def main(argv: list[str] | None = None) -> int:
     p_report.add_argument("csv")
     p_report.add_argument("--process-name", help="analyze this process instead of auto-detecting")
     p_report.add_argument("--no-system", action="store_true", help="skip system info")
+    goal_help = "goal to write the report for: " + ", ".join(goals.GOALS)
+    p_report.add_argument("--goal", choices=list(goals.GOALS), help=goal_help)
+    p_report.add_argument("--target", type=int, help="target FPS for --goal target")
     p_compare = sub.add_parser(
         "compare", help="compare two captures (result.json files or folders)"
     )
     p_compare.add_argument("before")
     p_compare.add_argument("after")
+    p_compare.add_argument("--goal", choices=list(goals.GOALS), help=goal_help)
+    p_compare.add_argument("--target", type=int, help="target FPS for --goal target")
     sub.add_parser("gui", help="open the Frametrace window (the default)")
     args = ap.parse_args(argv)
 
     if args.command == "inspect":
         return cmd_inspect(args.csv)
     if args.command == "report":
-        return cmd_report(args.csv, args.process_name, not args.no_system)
+        return cmd_report(args.csv, args.process_name, not args.no_system, args.goal, args.target)
     if args.command == "compare":
-        print(report.compare(_load_result(args.before), _load_result(args.after)))
+        a, b = _load_result(args.before), _load_result(args.after)
+        print(report.compare(a, b, args.goal, args.target))
         return 0
     from frametrace import gui
 

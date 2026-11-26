@@ -213,7 +213,11 @@ def test_render_has_all_sections_and_is_json_safe():
         "## Bottleneck",
         "## Display path",
         "## System",
-        "## Checks",
+        "## Task for the AI",
+        "## Goal: Higher average FPS",
+        "## Game",
+        "## Current in-game settings",
+        "## Fix first (outside the game)",
     ):
         assert heading in text
     assert "RTX 4070 Ti SUPER, driver 581.80" in text

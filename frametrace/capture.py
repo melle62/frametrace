@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 import threading
 import time
@@ -24,7 +25,18 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from frametrace import analyze, columns, presentmon, process, report, sysinfo, trace
+from frametrace import (
+    analyze,
+    columns,
+    game,
+    gamesettings,
+    goals,
+    presentmon,
+    process,
+    report,
+    sysinfo,
+    trace,
+)
 
 log = logging.getLogger(__name__)
 CREATE_NO_WINDOW = 0x08000000
@@ -40,6 +52,8 @@ class CaptureError(RuntimeError):
 class CaptureSettings:
     length_s: int | None = 30  # None = manual: runs until stopped
     process_name: str | None = None  # None = auto-detect
+    goal: str = goals.DEFAULT_GOAL  # see goals.GOALS
+    target_fps: int | None = None  # for the "target" goal; None = display refresh rate
 
 
 def _popen_flags() -> int:
@@ -247,7 +261,15 @@ class Recorder:
             "stop_method": stop_method,
             "other_presenters": [p.name for p in presenters if p.pid != target.pid][:5],
         }
-        result = report.build_result(analysis, self.system_provider(), meta)
+        info, found = identify_game(target, fg)
+        result = report.build_result(
+            analysis,
+            self.system_provider(),
+            meta,
+            game=info,
+            settings=found,
+            goal={"key": settings.goal, "target_fps": settings.target_fps},
+        )
 
         folder: Path = ctx["folder"]
         named = folder.with_name(f"{folder.name}-{_safe(target.name.removesuffix('.exe'))}")
@@ -274,6 +296,16 @@ class Recorder:
             self._log_file = None
 
 
+def identify_game(
+    target: process.Presenter, fg
+) -> tuple[game.GameInfo, gamesettings.GameSettings | None]:
+    """Name, store entry and engine of the captured game, and its in-game settings."""
+    same = fg is not None and fg.pid == target.pid
+    path = process.image_path(target.pid) or (fg.exe if same else None)
+    info = game.identify(target.name, path, fg.window_title if same else None)
+    return info, gamesettings.read(info)
+
+
 def list_captures(root: Path | None = None) -> list[tuple[Path, dict]]:
     """Saved captures, newest first."""
     root = root or DEFAULT_ROOT
@@ -288,6 +320,78 @@ def list_captures(root: Path | None = None) -> list[tuple[Path, dict]]:
             except (OSError, ValueError):
                 continue
     return out
+
+
+# --- organizing saved captures ----------------------------------------------------------------
+
+
+def save_user(folder: Path, **fields: str | None) -> dict:
+    """Set the user's label or group on a saved capture; None or "" clears a field.
+
+    Kept in result.json under "user", so it travels with the folder and the report and
+    comparison can show it. Written to a temporary file first, so a crash can't truncate
+    the result.
+    """
+    path = folder / "result.json"
+    result = json.loads(path.read_text(encoding="utf-8"))
+    user = dict(result.get("user") or {})
+    for key, value in fields.items():
+        value = (value or "").strip()
+        if value:
+            user[key] = value[:80]
+        else:
+            user.pop(key, None)
+    result["user"] = user
+    tmp = path.with_name("result.json.tmp")
+    tmp.write_text(json.dumps(result, indent=1), encoding="utf-8")
+    os.replace(tmp, path)
+    return result
+
+
+def _recycle(path: Path) -> bool:
+    """Move a folder to the Windows Recycle Bin. False when that isn't possible."""
+    if os.name != "nt":
+        return False
+    import ctypes
+    from ctypes import wintypes
+
+    class SHFILEOPSTRUCTW(ctypes.Structure):
+        _fields_ = [
+            ("hwnd", wintypes.HWND),
+            ("wFunc", wintypes.UINT),
+            ("pFrom", wintypes.LPCWSTR),
+            ("pTo", wintypes.LPCWSTR),
+            ("fFlags", ctypes.c_ushort),
+            ("fAnyOperationsAborted", wintypes.BOOL),
+            ("hNameMappings", ctypes.c_void_p),
+            ("lpszProgressTitle", wintypes.LPCWSTR),
+        ]
+
+    FO_DELETE = 3
+    FOF_SILENT, FOF_NOCONFIRMATION, FOF_ALLOWUNDO, FOF_NOERRORUI = 0x4, 0x10, 0x40, 0x400
+    op = SHFILEOPSTRUCTW(
+        wFunc=FO_DELETE,
+        pFrom=str(path) + "\0",  # a double-null-terminated list
+        fFlags=FOF_SILENT | FOF_NOCONFIRMATION | FOF_ALLOWUNDO | FOF_NOERRORUI,
+    )
+    ok = ctypes.windll.shell32.SHFileOperationW(ctypes.byref(op)) == 0
+    return ok and not op.fAnyOperationsAborted and not path.exists()
+
+
+def delete_capture(folder: Path, root: Path | None = None) -> str:
+    """Delete one saved capture folder. Returns "recycled" or "deleted".
+
+    Only a folder directly inside the captures root that holds a result.json: nothing
+    else on the disk can be removed this way. On Windows it goes to the Recycle Bin.
+    """
+    root = (root or DEFAULT_ROOT).resolve()
+    folder = folder.resolve()
+    if folder.parent != root or not (folder / "result.json").is_file():
+        raise CaptureError(f"Not a Frametrace capture folder: {folder}")
+    if _recycle(folder):
+        return "recycled"
+    shutil.rmtree(folder)
+    return "deleted"
 
 
 def beep(kind: str) -> None:

@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from test_analysis_report import fake_system, make_rows, result_for
 
-from frametrace import report, summary, theme, trace
+from frametrace import goals, report, summary, theme, trace
 
 
 def test_trace_buckets_and_hitches():
@@ -131,15 +131,20 @@ def test_compare_verdict_and_system_changes():
     a = result_for(make_rows(n=8000, gpu_frac=(0.95, 0.99)))
     b = result_for(make_rows(n=8000, ft=2.2, gpu_frac=(0.95, 0.99), seed=3), ram_running_mts=5600)
     head, items, notes = summary.compare_verdict(a, b)
-    assert summary.plain(head) == "B is 9.0% slower on average."
-    assert summary.runs(head)[1] == ("9.0%", True)  # numbers are set in mono
+    # Without a saved goal the default (higher average FPS) decides
+    assert head == "B is worse for a higher average FPS."
+    assert items[0][0] == "worse" and summary.plain(items[0][1]).startswith("Average")
+    assert ("-9.0%", True) in summary.runs(items[0][1])  # numbers are set in mono
     assert items and all(status == "worse" for status, _ in items)
     assert notes == []
     head, items, _ = summary.compare_verdict(b, a)
-    assert summary.plain(head).startswith("B is") and "faster" in head
+    assert head == "B is better for a higher average FPS."
     same = result_for(make_rows(n=8000, gpu_frac=(0.95, 0.99), seed=2))
     head, items, _ = summary.compare_verdict(a, same)
-    assert head == "Same average FPS." and items[0][0] == "same"
+    assert head == "No clear change for a higher average FPS." and items[0][0] == "same"
+    head, items, _ = summary.compare_verdict(a, b, goals.get("lows"))
+    assert head == "B is worse for higher 1% lows."
+    assert summary.plain(items[0][1]).startswith("1% low")
     short_cpu = result_for(make_rows(n=3000, gpu_frac=(0.3, 0.5)))
     _, _, notes = summary.compare_verdict(a, short_cpu)
     assert any("limit moved from the GPU to the CPU" in n for n in notes)
@@ -359,3 +364,113 @@ def test_instruments_on_tk(tk_root):
         r["ms_gpu_busy"] = None
     scope.show(trace.build(rows, buckets=100))
     assert not scope.has("ch2")
+
+
+def _saved_captures(root, n=3, apps=("cs2.exe", "cs2.exe", "DayZ_x64.exe")):
+    folders = []
+    for i in range(n):
+        folder = root / f"20261126-14{i}000-game{i}"
+        folder.mkdir(parents=True)
+        rows = make_rows(n=3000, seed=i)
+        for r in rows:
+            r["app"] = apps[i]
+        result = result_for(rows)
+        result["capture"]["app"] = apps[i]
+        result["capture"]["started"] = f"2026-11-26T14:{i}0:00+01:00"
+        (folder / "result.json").write_text(json.dumps(result))
+        folders.append(folder)
+    return folders
+
+
+def test_save_user_and_delete_capture(tmp_path):
+    from frametrace import capture
+
+    root = tmp_path / "captures"
+    a, b, _ = _saved_captures(root)
+    r = capture.save_user(a, label="  MSAA 2x  ", group="Tuning")
+    assert r["user"] == {"label": "MSAA 2x", "group": "Tuning"}
+    assert json.loads((a / "result.json").read_text())["user"]["label"] == "MSAA 2x"
+    assert capture.save_user(a, label="")["user"] == {"group": "Tuning"}  # empty clears
+    assert not (a / "result.json.tmp").exists()
+    assert capture.delete_capture(b, root) in ("deleted", "recycled") and not b.exists()
+    with pytest.raises(capture.CaptureError):  # only capture folders inside the root
+        capture.delete_capture(tmp_path, root)
+    with pytest.raises(capture.CaptureError):
+        capture.delete_capture(root / "missing", root)
+
+
+def test_rail_groups_by_user_group_then_game(tmp_path):
+    from frametrace import capture
+
+    root = tmp_path / "captures"
+    folders = _saved_captures(root)
+    capture.save_user(folders[0], group="MSAA tests", label="MSAA 2x")
+    caps = capture.list_captures(root)  # newest first: game2 (DayZ), game1, game0
+    groups = summary.rail_groups(caps)
+    assert [(h, custom, len(rows)) for h, custom, rows in groups] == [
+        ("DayZ_x64.exe", False, 1),
+        ("cs2.exe", False, 1),
+        ("MSAA tests", True, 1),
+    ]
+    labelled = groups[2][2][0][1]
+    assert summary.title(labelled) == "MSAA 2x" and summary.rail_row(labelled)[1] == "MSAA 2x"
+    assert summary.subtitle(labelled).startswith("cs2.exe ·")  # the game moves to the subtitle
+    assert "Run: MSAA 2x" in report.render(labelled)
+    assert '"MSAA 2x"' in report.compare(groups[1][2][0][1], labelled)
+
+
+def test_window_organizes_captures(tk_root, tmp_path, monkeypatch):
+    from frametrace import capture, gui, hotkey, presentmon, sysinfo
+
+    class Listener:
+        def __init__(self, key, cb):
+            self.hotkey = key
+
+        def start_and_wait(self):
+            return None
+
+        def is_alive(self):
+            return True
+
+        def stop(self):
+            pass
+
+    def not_found():
+        raise presentmon.PresentMonNotFound("not here")
+
+    monkeypatch.setattr(gui, "SETTINGS_PATH", tmp_path / "settings.json")
+    monkeypatch.setattr(hotkey, "HotkeyListener", Listener)
+    monkeypatch.setattr(sysinfo, "collect", fake_system)
+    monkeypatch.setattr(presentmon, "find_presentmon", not_found)
+    root = tmp_path / "captures"
+    folders = _saved_captures(root)
+    answers = iter(["Particles low", "Benchmark map", "Map runs"])
+    monkeypatch.setattr(gui.TextDialog, "ask", staticmethod(lambda *a, **k: next(answers)))
+
+    app = gui.App(tk_root, captures_root=root)
+    tk_root.update()
+    app.rename_capture(folders[0])
+    assert summary.label(app.result_for(folders[0])) == "Particles low"
+    app.ask_group([folders[0], folders[1]])
+    assert app.custom_groups() == ["Benchmark map"]
+    assert {summary.group(r) for f, r in app.captures if f != folders[2]} == {"Benchmark map"}
+    app.ask_group([folders[0], folders[1]], "Benchmark map")  # rename the group
+    assert app.custom_groups() == ["Map runs"]
+    app.toggle_group("Map runs")
+    assert folders[0] not in app.rail_order and folders[2] in app.rail_order  # folded shut
+    assert json.loads((tmp_path / "settings.json").read_text())["collapsed"] == ["Map runs"]
+    app.toggle_group("Map runs")
+    app.move_to_group([folders[1]], None)
+    assert summary.group(app.result_for(folders[1])) is None
+
+    app.ask_delete([folders[2]])
+    assert app.confirm and app.confirm[0].startswith("Delete DayZ_x64.exe")
+    app.cancel_confirm()
+    assert app.confirm is None and folders[2].exists()
+    app.ask_delete([folders[2]])
+    app.confirm[1][0][1]()  # the banner's Delete button
+    tk_root.update()
+    assert not folders[2].exists() and len(app.captures) == 2
+    assert folders[2] not in app.selected and app.selected
+    assert capture.list_captures(root)[0][0] == folders[1]
+    app.on_close()
