@@ -94,6 +94,10 @@ def main(argv: list[str] | None = None) -> int:
     p_preview.add_argument("folder")
     sub.add_parser("gui", help="open the Frametrace window (the default)")
     args = ap.parse_args(argv)
+    # The prompts carry a few non-ASCII marks (→ ■ □). A redirected stdout on an older Python
+    # may use a legacy code page; don't fail on them there.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="replace")
 
     if args.command == "inspect":
         return cmd_inspect(args.csv)

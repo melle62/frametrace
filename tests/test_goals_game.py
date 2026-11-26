@@ -77,6 +77,8 @@ def test_every_goal_renders_a_prompt(key):
     assert f"Goal: {goal.label}" in text
     assert "## Task for the AI" in text and "Recommend which in-game settings" in text
     assert "ask me" in text  # settings weren't read: the AI must ask for them
+    assert "one short text block" in text and "    NEXT  1  <menu name>" in text
+    assert text.index("    NEXT  1") < text.index("Skill:")  # the skill line stays last
     if key == "target":
         assert "Target 280 FPS" in text  # defaults to the refresh rate
 
@@ -104,6 +106,7 @@ def test_compare_lists_settings_changes_and_asks_for_next_step():
     assert "B is better for a higher average FPS." in text
     assert "- shadows: 2 -> 0" in text
     assert "Recommend the next 1-3 settings" in text
+    assert "(the base)" in text and "      vs BASE  <metric>" in text
     b["game_settings"] = None
     assert summary.settings_changes(a, b) is None
     assert "ask me what I changed" in report.compare(a, b)

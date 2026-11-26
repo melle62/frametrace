@@ -138,3 +138,22 @@ def test_report_points_other_games_at_the_general_skill():
     assert f"{skill_index.SKILLS_URL}/frametrace/SKILL.md" in line
     # Unknown game: only the process name.
     assert "DayZ_x64.exe" in report.skill_line(_result("DayZ_x64.exe"))
+
+
+def _answer_templates(path: Path) -> list[list[str]]:
+    block = sync_skills.shared_block(path.read_text(encoding="utf-8"))
+    return [
+        m.splitlines() for m in re.findall(r"^```text\n(.*?)^```", block, re.DOTALL | re.MULTILINE)
+    ]
+
+
+def test_answer_block_matches_the_report_prompts():
+    """The skill's answer templates and the ones the report and comparison carry are the same,
+    so an AI without the skill answers in the same block."""
+    assert _answer_templates(GENERAL) == [report.REPORT_ANSWER, report.COMPARE_ANSWER]
+
+
+def test_answer_block_fits_a_phone():
+    for template in (report.REPORT_ANSWER, report.COMPARE_ANSWER):
+        for line in template:
+            assert len(line) < 56, line

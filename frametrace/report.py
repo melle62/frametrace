@@ -357,6 +357,56 @@ def skill_line(r: dict) -> str:
     )
 
 
+FOOTER = ["One change per run. Same scene, same length,", "then paste the comparison."]
+
+# The answer the AI gives: one short block in Frametrace's instrument voice (the skills'
+# "Answer format" has the full rules). Indented four spaces, so it reads as a code block.
+REPORT_ANSWER = [
+    "FRAMETRACE · <GAME> · <GOAL>",
+    "<run label or time> · <limit, e.g. GPU-limited 90%>",
+    "NOW   <goal metric> <value> <unit> · <one more metric>",
+    "",
+    "FIX   [!] <fix outside the game>   (only if any)",
+    "NEXT  1  <menu name>  <current> → <new>",
+    "         <effect on goal> · <visual cost> · <source>",
+    "      2  …",
+    "NOTE  <only when needed>",
+    "",
+    *FOOTER,
+]
+COMPARE_ANSWER = [
+    "FRAMETRACE · <GAME> · <GOAL>",
+    "<B's label or time> vs <A's label or time>",
+    "CHANGED  <menu name>  <A's value> → <B's value>",
+    "",
+    "■ BETTER   <metric>  <A> → <B> <unit>  <change>",
+    "□ SAME     <metric>  <A> → <B> <unit>  <change>",
+    "  vs BASE  <metric>  <base> → <B> <unit>  <change>",
+    "",
+    "KEEP  <what changed>     (or UNDO <what>: <why>)",
+    "NEXT  1  <menu name>  <current> → <new>",
+    "         <effect on goal> · <visual cost> · <source>",
+    "NOTE  <only when needed>",
+    "",
+    *FOOTER,
+]
+
+
+def answer_lines(template: list[str]) -> list[str]:
+    """How to answer: one short monospace block, read at a glance between runs."""
+    return [
+        (
+            "Answer in one short text block in a code fence, every line under 56 characters, and"
+            " nothing around it unless you need to ask me something or I ask why. Labels in"
+            " capitals, setting names as the game's menu shows them, every number with its unit."
+            " Source for each effect: measured, community, guide or engine (general knowledge)."
+        ),
+        "",
+        *(f"    {line}" if line else "" for line in template),
+        "",
+    ]
+
+
 def task_lines(r: dict, goal: goals.Goal, target: int | None) -> list[str]:
     """Instructions for the AI. The report is the prompt: it works without the skill."""
     name = game_name(r)
@@ -386,12 +436,12 @@ def task_lines(r: dict, goal: goals.Goal, target: int | None) -> list[str]:
         )
     lines += [
         (
-            "3. Give a ranked list of 1-3 changes to try first: setting, current value -> new value,"
-            " the expected effect on the goal, and the visual cost."
+            "3. Rank 1-3 changes to try, one per run: setting, current value -> new value, the"
+            " expected effect on the goal (a range), and the visual cost."
         ),
-        '4. If anything under "Fix first" is marked [!], mention it before the in-game changes.',
+        '4. If anything under "Fix first" is marked [!], put it before the in-game changes.',
         (
-            "5. I'll re-run the same scene after the change and paste the Frametrace comparison."
+            "5. I'll re-run the same scene after each change and paste the Frametrace comparison."
             " Say so if you aren't sure a setting exists in this version of the game."
         ),
     ]
@@ -400,6 +450,7 @@ def task_lines(r: dict, goal: goals.Goal, target: int | None) -> list[str]:
             "If the target is met with room to spare, recommend which settings to raise for"
             " better visuals while staying above it."
         )
+    lines += answer_lines(REPORT_ANSWER)
     lines.append(skill_line(r))
     return lines
 
@@ -705,12 +756,19 @@ def compare(a: dict, b: dict, goal_key: str | None = None, target_fps: int | Non
             if goal.key == "target"
             else f"{goal.aim} ({goal.trade_off})."
         ),
-        "1. Tell me whether to keep the change, counting run-to-run noise.",
         (
-            "2. Recommend the next 1-3 settings to try, from B's bottleneck and current settings"
-            " below; same format as before (setting, current -> new, effect on the goal, visual cost)."
+            "1. Tell me whether to keep or undo the change, counting run-to-run noise (the result"
+            " for the goal above already does)."
         ),
-        "3. If the change made things worse, say whether to undo it before trying the next one.",
+        (
+            "2. Recommend the next 1-3 settings to try, one per run, from B's bottleneck and"
+            " current settings below: setting, current -> new, effect on the goal (a range),"
+            " visual cost."
+        ),
+        (
+            "3. If earlier runs of this scene are in our chat, also compare B with the first one"
+            " (the base): each run can beat the last and still end up below where I started."
+        ),
         *(
             [
                 (
@@ -722,6 +780,7 @@ def compare(a: dict, b: dict, goal_key: str | None = None, target_fps: int | Non
             if summary.settings_unchanged_but_moved(a, b, target)
             else []
         ),
+        *answer_lines(COMPARE_ANSWER),
         skill_line(b),
         "",
         "| Metric | A | B | Change |",
