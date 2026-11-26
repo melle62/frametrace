@@ -257,6 +257,12 @@ def test_parse_powercfg(out, expected):
     assert sysinfo.parse_powercfg(out) == expected
 
 
+def test_placeholder_part_number_is_ignored():
+    si = sysinfo.SystemInfo()
+    sysinfo.apply_hardware(si, {"ram": [{"Capacity": 8589934592, "PartNumber": "None"}]})
+    assert si.ram_part is None and si.ram_total_gb == 8.0
+
+
 def test_main_gpu_prefers_discrete():
     si = sysinfo.SystemInfo(
         gpus=[

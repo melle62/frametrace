@@ -40,6 +40,7 @@ POWER_PLANS = {
     "a1841308-3541-4fab-bc81-f71556f20b4a": "Power saver",
     "e9a42b02-d5df-448d-aa00-03f14749eb61": "Ultimate Performance",
 }
+PLACEHOLDERS = {"", "none", "unknown", "undefined", "not specified", "to be filled by o.e.m."}
 DISCRETE_GPU = re.compile(r"\b(RTX|GTX|Radeon RX|RX \d|Arc [AB]\d)", re.IGNORECASE)
 
 
@@ -199,7 +200,8 @@ def apply_hardware(info: SystemInfo, data: dict) -> None:
         rated = [m.get("Speed") for m in ram if m.get("Speed")]
         info.ram_running_mts = normalize_mts(min(running), info.ram_type) if running else None
         info.ram_module_max_mts = normalize_mts(min(rated), info.ram_type) if rated else None
-        info.ram_part = (ram[0].get("PartNumber") or "").strip() or None
+        part = (ram[0].get("PartNumber") or "").strip()
+        info.ram_part = None if part.lower() in PLACEHOLDERS else part
         info.ram_kit_mts = kit_speed_from_part(info.ram_part, info.ram_type)
 
     board = data.get("board") or {}
