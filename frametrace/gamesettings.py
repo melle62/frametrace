@@ -93,6 +93,10 @@ def _mtime(p: Path) -> float | None:
 # --- Source 2 (CS2, Dota 2, Deadlock): video config in KeyValues -----------------------------
 
 
+# Hardware levels Source 2 detects on its own: not options in the game's menu
+SOURCE2_AUTODETECT = frozenset({"cpu_level", "gpu_level", "gpu_mem_level"})
+
+
 def source2_candidates(game: GameInfo, steam: Path | None) -> list[Path]:
     out: list[Path] = []
     if steam and game.store_id:
@@ -121,7 +125,9 @@ def read_source2(game: GameInfo, steam: Path | None = None) -> GameSettings | No
     block = next((v for v in kv.values() if isinstance(v, dict)), {})
     pairs = [(k, v) for k, v in block.items() if isinstance(v, str)]
     prefixed = [(k.removeprefix("setting."), v) for k, v in pairs if k.startswith("setting.")]
-    settings = [(k, v) for k, v in (prefixed or pairs) if keep(k, v)]
+    settings = [
+        (k, v) for k, v in (prefixed or pairs) if keep(k, v) and k not in SOURCE2_AUTODETECT
+    ]
     if not settings:
         return None
     return GameSettings("Source 2 video config", _short(path), settings, _mtime(path))

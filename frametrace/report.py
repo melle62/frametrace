@@ -57,11 +57,15 @@ def build_result(
 
 
 def checks(r: dict) -> list[dict]:
-    """Problems worth fixing before tuning game settings. level: warn, info or ok."""
+    """Automatic checks. level: warn, info or ok.
+
+    kind "system": something to fix outside the game (hardware, Windows, display).
+    kind "capture": a note on what the capture shows or can't show (stutter, length).
+    """
     out: list[dict] = []
 
-    def add(level: str, text: str) -> None:
-        out.append({"level": level, "text": text})
+    def add(level: str, text: str, kind: str = "system") -> None:
+        out.append({"level": level, "text": text, "kind": kind})
 
     sysd, an = r.get("system") or {}, r["analysis"]
     stats, bn, disp = an["stats"], an["bottleneck"], an["display"]
@@ -137,25 +141,51 @@ def checks(r: dict) -> list[dict]:
     if sysd.get("memory_integrity"):
         add("info", "Memory integrity (VBS/HVCI) is on. It can cost a few percent in some games.")
     if sysd.get("hags") and stats["avg_fps"] >= HIGH_FPS and bn.get("available"):
-        add("info", "HAGS is on and FPS is very high: the GPU-limited share may be overstated.")
+        add(
+            "info",
+            "HAGS is on and FPS is very high: the GPU-limited share may be overstated.",
+            "capture",
+        )
 
     # Capture quality
     if stats["spike_time_pct"] > 2:
         add(
             "warn",
             f"Stutter: {stats['spike_time_pct']:.1f}% of the time was spent in hitches (frames twice as long as their neighbours).",
+            "capture",
         )
     if disp.get("dropped_pct") and disp["dropped_pct"] > 10:
-        add("info", f"{disp['dropped_pct']:.0f}% of frames were never shown on screen.")
+        add("info", f"{disp['dropped_pct']:.0f}% of frames were never shown on screen.", "capture")
     if stats["duration_s"] < 10:
         add(
             "info",
             f"Short capture ({stats['duration_s']:.0f} s). 30 s or more gives steadier lows.",
+            "capture",
         )
     if not bn.get("available"):
-        add("info", "The CPU/GPU bottleneck split isn't available for this capture.")
-    add("info", "Frame generation (DLSS/FSR) can't be detected. Say so if it was on.")
+        add("info", "The CPU/GPU bottleneck split isn't available for this capture.", "capture")
+    add("info", "Frame generation (DLSS/FSR) can't be detected. Say so if it was on.", "capture")
     return out
+
+
+# Captures saved before checks had a kind: their capture notes, by how the text starts
+_CAPTURE_NOTES = (
+    "Stutter:",
+    "Short capture",
+    "HAGS is on and FPS is very high",
+    "The CPU/GPU bottleneck split",
+    "Frame generation",
+)
+
+
+def check_kind(c: dict) -> str:
+    """system or capture, also for checks saved before the kind existed."""
+    if c.get("kind"):
+        return c["kind"]
+    text = c.get("text", "")
+    if text.startswith(_CAPTURE_NOTES) or text.endswith("were never shown on screen."):
+        return "capture"
+    return "system"
 
 
 # --- rendering -------------------------------------------------------------------------------
@@ -476,9 +506,15 @@ def render(r: dict, goal_key: str | None = None, target_fps: int | None = None) 
         lines.append(
             f"Input to photon (median, software-measured): {d['input_to_photon_ms']:.1f} ms"
         )
-    lines += ["", "## Fix first (outside the game)"]
     marks = {"warn": "[!]", "info": "[i]", "ok": "[ok]"}
-    lines += [f"{marks[c['level']]} {c['text']}" for c in r.get("checks", [])]
+    found = r.get("checks", [])
+    notes = [c for c in found if check_kind(c) == "capture"]
+    fixes = [c for c in found if check_kind(c) == "system"]
+    if notes:
+        lines += ["", "## Capture notes"]
+        lines += [f"{marks[c['level']]} {c['text']}" for c in notes]
+    lines += ["", "## Fix first (outside the game)"]
+    lines += [f"{marks[c['level']]} {c['text']}" for c in fixes] or ["[ok] Nothing found."]
     lines += [
         "",
         "## System",
@@ -695,7 +731,11 @@ def compare(a: dict, b: dict, goal_key: str | None = None, target_fps: int | Non
         diffs.append(f"- Display mode: {da} -> {db}")
     lines += ["", "## System differences", *(diffs or ["- none detected"])]
     for label, r in (("A", a), ("B", b)):
-        warns = [c["text"] for c in r.get("checks", []) if c["level"] == "warn"]
+        warns = [
+            c["text"]
+            for c in r.get("checks", [])
+            if c["level"] == "warn" and check_kind(c) == "system"
+        ]
         if warns:
             lines += ["", f"Fix first, flagged in {label}:", *(f"- {w}" for w in warns)]
     lines += ["", f"Frametrace {b.get('frametrace')} ({REPO_URL})"]

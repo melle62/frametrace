@@ -14,6 +14,9 @@ CS2_VIDEO = """"video.cfg"
 {
 	"Version"		"14"
 	"VendorID"		"4318"
+	"setting.cpu_level"		"3"
+	"setting.gpu_level"		"3"
+	"setting.gpu_mem_level"		"3"
 	"setting.defaultres"		"2560"
 	"setting.defaultresheight"		"1440"
 	"setting.msaa_samples"		"4"
@@ -168,6 +171,7 @@ def test_source2_video_config_from_userdata(tmp_path):
     assert ("videocfg_shadow_quality", "2") in found.settings
     keys = [k for k, _ in found.settings]
     assert "VendorID" not in keys and "AutoConfig" not in keys and "Version" not in keys
+    assert not {"cpu_level", "gpu_level", "gpu_mem_level"} & set(keys)  # auto-detected levels
     assert "123456789" not in found.source and "<account>" in found.source  # no Steam ID
 
 
@@ -222,3 +226,41 @@ def test_game_sections_for_the_game_tab():
     secs = dict(summary.game_sections(r))
     assert ("Game", "G") in secs["Captured game"]
     assert secs["In-game settings"][0][0] == ""  # the "not read" note
+
+
+def test_fixed_version_from_numeric_block():
+    """Games without version strings still have VS_FIXEDFILEINFO; parse it like Windows does."""
+    import ctypes
+    import struct
+
+    block = ctypes.create_string_buffer(
+        struct.pack(
+            "<6I", 0xFEEF04BD, 0x10000, (1 << 16) | 41, (1 << 16) | 6, (1 << 16) | 41, (1 << 16) | 6
+        )
+    )
+
+    class FakeVersionDll:
+        def VerQueryValueW(self, buf, sub, ptr, length):
+            assert sub == "\\"
+            ptr._obj.value = ctypes.addressof(block)
+            length._obj.value = len(block.raw)
+            return 1
+
+    assert game._fixed_version(FakeVersionDll(), None) == "1.41.1.6"
+    zero = ctypes.create_string_buffer(struct.pack("<6I", 0xFEEF04BD, 0, 0, 0, 0, 0))
+    block = zero
+    assert game._fixed_version(FakeVersionDll(), None) is None
+
+
+def test_stutter_is_a_capture_note_not_a_fix():
+    r = result_for(make_rows(n=8000))
+    r["checks"].append({"level": "warn", "text": "Stutter: 3.7% of the time was spent in hitches."})
+    text = report.render(r)
+    fix = text.split("## Fix first (outside the game)")[1].split("##")[0]
+    notes = text.split("## Capture notes")[1].split("##")[0]
+    assert "Stutter" in notes and "Stutter" not in fix  # old captures without a kind, too
+    assert "Frame generation" in notes and "RAM runs at" in fix
+    kinds = {c["text"].split(" ")[0]: c["kind"] for c in r["checks"] if "kind" in c}
+    assert kinds["RAM"] == "system" and kinds["Frame"] == "capture"
+    a, b = r, result_for(make_rows(n=8000))
+    assert "Stutter" not in report.compare(b, a).split("Fix first, flagged")[-1]

@@ -26,7 +26,9 @@ makes the answers sharper and consistent. Every report must work without it.
    - **Capped / waiting**: the cap, VSync or Reflex setting sets the rate. Spend GPU headroom on
      quality, or lift the cap if the goal is more FPS.
    - **Mixed**: the scene moves the limit. Settings on both sides matter.
-5. `## Fix first (outside the game)`: anything marked `[!]` (RAM below its rated speed,
+5. `## Capture notes`: what the capture shows or can't show (stutter, a short capture, frame
+   generation). Stutter here is evidence for the goal, not something to fix in Windows.
+6. `## Fix first (outside the game)`: anything marked `[!]` (RAM below its rated speed,
    refresh rate below the monitor's maximum, desktop compositor in the present path, power saver)
    goes first in the answer, in one line each.
 

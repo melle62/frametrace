@@ -160,7 +160,7 @@ def version_info(exe_path: str) -> dict[str, str]:
         langs = [f"{arr[i]:04x}{arr[i + 1]:04x}" for i in range(0, length.value // 2, 2)]
     out: dict[str, str] = {}
     for lang in [*langs, "040904b0", "040904e4"]:
-        for field in ("ProductName", "FileDescription", "ProductVersion"):
+        for field in ("ProductName", "FileDescription", "ProductVersion", "FileVersion"):
             if field in out:
                 continue
             if (
@@ -172,7 +172,43 @@ def version_info(exe_path: str) -> dict[str, str]:
                 value = ctypes.wstring_at(ptr, length.value).rstrip("\0").strip()
                 if value:
                     out[field] = value
+    # Many games ship no version strings, only the numeric VS_FIXEDFILEINFO block
+    if "ProductVersion" not in out and "FileVersion" not in out:
+        fixed = _fixed_version(ver, buf)
+        if fixed:
+            out["FixedVersion"] = fixed
     return out
+
+
+def _fixed_version(ver, buf) -> str | None:
+    """'1.41.1.6' from VS_FIXEDFILEINFO (product version), or None when it's empty or 0.0.0.0."""
+    import ctypes
+    from ctypes import wintypes
+
+    class VS_FIXEDFILEINFO(ctypes.Structure):
+        _fields_ = [
+            ("dwSignature", ctypes.c_uint32),
+            ("dwStrucVersion", ctypes.c_uint32),
+            ("dwFileVersionMS", ctypes.c_uint32),
+            ("dwFileVersionLS", ctypes.c_uint32),
+            ("dwProductVersionMS", ctypes.c_uint32),
+            ("dwProductVersionLS", ctypes.c_uint32),
+        ]
+
+    ptr, length = ctypes.c_void_p(), wintypes.UINT()
+    if not ver.VerQueryValueW(buf, "\\", ctypes.byref(ptr), ctypes.byref(length)):
+        return None
+    if length.value < ctypes.sizeof(VS_FIXEDFILEINFO) or not ptr.value:
+        return None
+    info = ctypes.cast(ptr, ctypes.POINTER(VS_FIXEDFILEINFO)).contents
+    if info.dwSignature != 0xFEEF04BD:
+        return None
+    ms, ls = (
+        info.dwProductVersionMS or info.dwFileVersionMS,
+        info.dwProductVersionLS or info.dwFileVersionLS,
+    )
+    parts = (ms >> 16, ms & 0xFFFF, ls >> 16, ls & 0xFFFF)
+    return ".".join(map(str, parts)) if any(parts) else None
 
 
 # Names an engine or launcher stub puts in the version resource instead of the game's own.
@@ -250,7 +286,9 @@ def identify(exe: str, path: str | None, window_title: str | None = None) -> Gam
                     if app.get("name"):
                         info.name, info.name_source = app["name"], "steam"
             vi = version_info(path)
-            info.version = vi.get("ProductVersion")
+            info.version = (
+                vi.get("ProductVersion") or vi.get("FileVersion") or vi.get("FixedVersion")
+            )
             if not info.name:
                 for field in ("ProductName", "FileDescription"):
                     v = vi.get(field)
