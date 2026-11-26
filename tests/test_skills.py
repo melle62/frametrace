@@ -1,4 +1,4 @@
-"""The AI skills in skills/: frontmatter, required sections, shared rules in sync."""
+"""The AI skills in skills/: frontmatter, sections, shared rules, the report's skill line."""
 
 from __future__ import annotations
 
@@ -13,6 +13,8 @@ SKILLS = ROOT / "skills"
 sys.path.insert(0, str(ROOT / "tools"))
 
 import sync_skills
+
+from frametrace import report, skill_index
 
 GENERAL = SKILLS / "frametrace" / "SKILL.md"
 TEMPLATE = SKILLS / "game-skill-template.md"
@@ -35,19 +37,7 @@ GAME_SECTIONS = [
 
 
 def frontmatter(path: Path) -> dict:
-    """The YAML frontmatter's top-level keys and the `metadata` map (flat, stdlib only)."""
-    text = path.read_text(encoding="utf-8")
-    m = re.match(r"---\n(.*?)\n---\n", text, re.DOTALL)
-    assert m, f"{path}: no frontmatter"
-    out: dict = {"metadata": {}}
-    for line in m.group(1).splitlines():
-        if line.startswith("  "):
-            key, _, value = line.strip().partition(":")
-            out["metadata"][key] = value.strip()
-        elif ":" in line and not line.startswith("metadata:"):
-            key, _, value = line.partition(":")
-            out[key] = value.strip()
-    return out
+    return sync_skills.frontmatter(path.read_text(encoding="utf-8"))
 
 
 def headings(path: Path) -> list[str]:
@@ -55,10 +45,6 @@ def headings(path: Path) -> list[str]:
     text = sync_skills.BLOCK.sub("", path.read_text(encoding="utf-8"))
     text = re.sub(r"^```.*?^```", "", text, flags=re.DOTALL | re.MULTILINE)
     return [line for line in text.splitlines() if line.startswith("## ")]
-
-
-def listed(value: str) -> list[str]:
-    return [v.strip() for v in value.strip("[]").split(",") if v.strip()]
 
 
 def test_there_is_a_general_skill_and_at_least_one_game_skill():
@@ -86,7 +72,7 @@ def test_game_skill_names_its_game(path):
     fm = frontmatter(path)
     meta, desc = fm["metadata"], fm["description"]
     assert meta.get("game") and meta["game"] in desc
-    names = listed(meta.get("process_names", ""))
+    names = sync_skills.listed(meta.get("process_names", ""))
     assert names, "metadata.process_names is empty"
     for exe in names:
         assert exe in desc, f"{exe} missing from the description"
@@ -127,3 +113,28 @@ def test_sync_replaces_only_the_block():
     assert sync_skills.synced(stale, block) == f"before\n{block}\nafter\n"
     with pytest.raises(ValueError):
         sync_skills.synced("no markers here\n", block)
+
+
+def _result(exe: str, name: str | None = None) -> dict:
+    return {"capture": {"app": exe}, "game": {"exe": exe, "name": name} if name else None}
+
+
+def test_index_lists_every_game_skill():
+    for path in GAME_SKILLS:
+        for exe in sync_skills.listed(frontmatter(path)["metadata"]["process_names"]):
+            assert skill_index.GAME_SKILLS[exe.lower()][0] == path.parent.name
+
+
+def test_report_names_the_game_skill():
+    line = report.skill_line(_result("CS2.exe", "Counter-Strike 2"))
+    assert "frametrace-cs2" in line
+    assert line.endswith("this prompt also works without it.")
+    assert f"{skill_index.SKILLS_URL}/frametrace-cs2/SKILL.md" in line
+
+
+def test_report_points_other_games_at_the_general_skill():
+    line = report.skill_line(_result("DayZ_x64.exe", "DayZ"))
+    assert "no Frametrace skill for DayZ yet" in line
+    assert f"{skill_index.SKILLS_URL}/frametrace/SKILL.md" in line
+    # Unknown game: only the process name.
+    assert "DayZ_x64.exe" in report.skill_line(_result("DayZ_x64.exe"))

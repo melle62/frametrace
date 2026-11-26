@@ -13,9 +13,10 @@ settings** to change to reach it. This skill does two jobs:
 2. **Study** a new game: gather its settings, a repeatable scene and measured captures until there
    is enough to write a game skill (`frametrace-<game>`), which then takes over for that game.
 
-Game skills so far: `frametrace-cs2` (Counter-Strike 2). When a report is for one of these games
-and its skill is available, follow that skill instead. Every report also works with no skill at
-all: it is a complete prompt.
+Game skills so far: `frametrace-cs2` (Counter-Strike 2). The report's `Skill:` line, at the end
+of its task, names the skill for the captured game. When a report is for one of these games and
+its skill is available, follow that skill instead. Every report also works with no skill at all:
+it is a complete prompt.
 
 ## Which job
 - **A report or comparison is pasted** → advise (rules below). At the end of the first answer

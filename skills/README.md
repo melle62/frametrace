@@ -9,7 +9,9 @@ add game knowledge that was measured with Frametrace.
 | [`frametrace-cs2`](frametrace-cs2/SKILL.md) | Counter-Strike 2 (`cs2.exe`, Steam app 730) | tested on one PC |
 
 A game skill takes over from the general one for its game. Each skill is a single `SKILL.md` that
-works on its own.
+works on its own. Every Frametrace report ends its task with a `Skill:` line that names the skill
+for the captured game (or the general one) and links its plain text, so an AI that can open links
+can read it without installing anything.
 
 ## Using them
 - **Claude:** add a skill's folder as a skill (zipped), or copy it into `~/.claude/skills/` for
@@ -46,3 +48,6 @@ skill. They live between the `frametrace:shared-rules` markers in
 python tools/sync_skills.py          # copy them into every game skill and the template
 python tools/sync_skills.py --check  # what pytest checks
 ```
+
+The same tool regenerates `frametrace/skill_index.py` (process name → game skill) from each game
+skill's `metadata.process_names`: that's how the report's `Skill:` line knows the game has a skill.
