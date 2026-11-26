@@ -126,6 +126,12 @@ class App:
         root.geometry(f"{w}x{h}")
         root.minsize(min(px(1000), w), min(px(680), h))
         self._set_icon()
+        # the native frame exists only once the window is mapped (and again after restore)
+        root.bind(
+            "<Map>",
+            lambda e: e.widget is root and theme.set_title_bar(root, self.t.dark, self.t.c),
+            add="+",
+        )
         self.fonts = theme.make_fonts(root)
         # state shared by both themes: the variables survive a rebuild
         self.hotkey_var = tk.StringVar(value=self.settings["hotkey"])
@@ -203,7 +209,7 @@ class App:
         for child in self.root.winfo_children():
             child.destroy()
         self.t = t = theme.apply(self.root, self.settings.get("theme", "dark"), self.fonts)
-        self.root.after(50, lambda: theme.set_title_bar(self.root, t.dark))
+        theme.set_title_bar(self.root, t.dark, t.c)  # a rebuild: the window is already shown
 
         self._build_topbar()
         self.progress = tk.Canvas(
