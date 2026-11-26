@@ -107,8 +107,10 @@ def pick_target(
     *,
     process_name: str | None = None,
     min_frames: int = MIN_FRAMES,
+    exclude_pids: frozenset[int] | set[int] = frozenset(),
 ) -> tuple[Presenter | None, str]:
     """Choose the game among the presenting processes. Returns (presenter, reason)."""
+    presenters = [p for p in presenters if p.pid not in exclude_pids]
     if process_name:
         wanted = process_name.lower()
         named = [p for p in presenters if p.name.lower() == wanted]

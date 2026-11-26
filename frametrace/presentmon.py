@@ -75,7 +75,12 @@ def in_perf_log_users() -> bool | None:
         return None
     try:
         out = subprocess.run(
-            ["whoami", "/groups"], capture_output=True, text=True, timeout=10, check=False
+            ["whoami", "/groups"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+            creationflags=0x08000000,  # CREATE_NO_WINDOW: no console flash from the GUI
         ).stdout
     except (OSError, subprocess.SubprocessError):
         return None
@@ -143,3 +148,15 @@ def capture_command(
 def terminate_command(exe: Path, session_name: str = SESSION_NAME) -> list[str]:
     """Stops a running recording cleanly: the recording PresentMon flushes its CSV and exits."""
     return [str(exe), "--session_name", session_name, "--terminate_existing_session"]
+
+
+def read_console_log(path: Path) -> str:
+    """PresentMon writes UTF-16 to a redirected console, other tools write UTF-8."""
+    raw = path.read_bytes()
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+        text = raw.decode("utf-16", errors="replace")
+    elif b"\x00" in raw[:200]:
+        text = raw.decode("utf-16-le", errors="replace")
+    else:
+        text = raw.decode("utf-8", errors="replace")
+    return "\n".join(line.rstrip() for line in text.splitlines() if line.strip())

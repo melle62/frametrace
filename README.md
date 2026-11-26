@@ -9,17 +9,17 @@ Works with **any** game: DirectX 11, DirectX 12, Vulkan and OpenGL, any engine, 
 per-game setup. Capture is based on Intel's [PresentMon](https://github.com/GameTechDev/PresentMon),
 which reads frame events from Windows and doesn't touch the game.
 
-> **Status: pre-alpha.** The repo structure, PresentMon integration research and a capture probe
-> are in. The hotkey capture, analysis and report are next. See the [roadmap](#roadmap).
+> **Status: alpha.** Capture, analysis, system info, report and compare work. Thresholds for the
+> CPU/GPU split are still being calibrated with real captures. See the [roadmap](#roadmap).
 
-## How it will work
+## How it works
 
 ```
-F10 in game ──► PresentMon records every frame ──► F10 again
+F10 in game ──► PresentMon records every frame ──► F10 again (or after 30 s)
                                                      │
           ┌──────────────────────────────────────────┘
           ▼
-  pick the game automatically ──► stats + CPU/GPU bottleneck ──► + system info
+  pick the game automatically ──► stats + CPU/GPU bottleneck ──► + system info + checks
                                                                      │
                        report copied to clipboard ◄──────────────────┘
                                  │
@@ -27,36 +27,55 @@ F10 in game ──► PresentMon records every frame ──► F10 again
                  paste into Claude / ChatGPT / … with the Frametrace skill
 ```
 
-The report will cover average FPS, 1% and 0.1% lows, P99 frame time, frame-time consistency, and
-the share of frames limited by the CPU and by the GPU. It also includes the checks that catch
-real problems: RAM running below its rated speed (EXPO/XMP off), refresh rate mismatch, FPS cap
-versus refresh rate, power plan, Game Mode and HAGS. Compare mode puts two reports side by side
-(before and after an upgrade or a settings change).
+The report covers average FPS, 1% and 0.1% lows, the worst second, P99 frame time, stutter
+spikes, and the share of frames limited by the CPU and by the GPU, with estimated FPS ceilings
+for each. Automatic checks catch the classic problems: RAM running below its rated speed
+(EXPO/XMP off), single-channel RAM, a display running below its maximum refresh rate, frames
+going through the desktop compositor, VSync, FPS caps, and power plan, Game Mode, HAGS and
+memory integrity. Compare mode puts two captures side by side (before and after an upgrade
+or a settings change).
 
-## Try the probe (Windows)
+## Use it (Windows 10/11)
 
-The probe records a short capture in any game and shows what Frametrace sees. It needs Python
-3.10+ and no other packages.
+You need Python 3.10 or newer.
 
 ```powershell
-python tools/get_presentmon.py                     # downloads PresentMon 2.6.0 to bin/ and checks its hash
-python tools/probe_presentmon.py --label cs2-dx11  # run from an admin terminal, then switch to the game
+python -m pip install sv-ttk      # Windows 11 look for the window (optional)
+python -m frametrace              # or double-click Frametrace.bat
 ```
 
-PresentMon needs administrator rights or membership in the "Performance Log Users" group. See
+On first start the window offers to download PresentMon (Intel's free capture tool, checked
+against a pinned SHA-256). Recording needs administrator rights or membership in the
+"Performance Log Users" group, and the window offers both. Then:
+
+1. Start a game and press **F10** (change it in the window). You'll hear a beep.
+2. Play normally. Recording stops after the chosen length (30 s by default), or when you press
+   F10 again in manual mode.
+3. The report appears in the window and is already on your clipboard. Paste it into any AI.
+
+Captures are saved in `Documents\Frametrace\captures`. Select two in the **Captures** tab to
+compare them.
+
+Command line: `python -m frametrace report capture.csv` analyzes an existing PresentMon CSV,
+and `python -m frametrace compare before after` compares two saved captures.
+
+For PresentMon details (CSV formats, permissions, anti-cheat), see
 [docs/presentmon.md](docs/presentmon.md).
 
 ## Repo layout
 
 ```
 frametrace/          core package, game-agnostic (no game-specific code, ever)
+  gui.py             the window (tkinter + Sun Valley theme)
+  capture.py         recording controller: PresentMon start/stop, game pick, saving
+  hotkey.py          global hotkey (RegisterHotKey)
+  analyze.py         frame stats + CPU/GPU bottleneck
+  sysinfo.py         CPU/GPU/RAM/BIOS/display/Windows settings
+  report.py          text report, checks, JSON result, compare mode
   columns.py         PresentMon CSV schema detection → canonical column names
   process.py         foreground process + automatic game detection
   presentmon.py      locating and driving PresentMon
-  capture.py         hotkey recording            (next)
-  analyze.py         stats + bottleneck          (next)
-  sysinfo.py         CPU/GPU/RAM/BIOS/display    (next)
-  report.py          text report + compare mode  (next)
+  download.py        PresentMon download with hash check
 skill/               the AI skill (SKILL.md) and optional per-game profiles
 tools/               setup and probe scripts
 tests/               pytest suite and fixtures
@@ -68,10 +87,9 @@ bin/                 PresentMon goes here (not committed)
 
 - [x] Repo, license, sponsor button
 - [x] PresentMon version, CSV schemas, permissions, game auto-detection design
-- [ ] Probe captures across DX11 / DX12 / Vulkan / OpenGL
-- [ ] `capture.py` hotkey recording, `analyze.py` stats and bottleneck detection
-- [ ] `sysinfo.py`
-- [ ] `report.py` and compare mode
+- [x] Window with hotkey capture, fixed or manual length
+- [x] Stats, bottleneck detection, system info, checks, report, compare
+- [ ] Real captures across DX11 / DX12 / Vulkan / OpenGL to calibrate thresholds
 - [ ] Skill (`skill/SKILL.md`) tested with real reports
 - [ ] Packaged `.exe` release
 

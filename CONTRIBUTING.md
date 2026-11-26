@@ -33,7 +33,8 @@ Ground rules:
   from PresentMon data and system info only.
 - **Never hardcode PresentMon column names outside `frametrace/columns.py`.** Use the canonical
   names it defines.
-- The core is **stdlib-only** for now. Ask in an issue before adding a dependency.
+- The core (everything except `gui.py`) is **stdlib-only**. The GUI uses `sv-ttk` for its
+  Windows 11 theme and still runs without it. Ask in an issue before adding a dependency.
 - Run `pytest` and `ruff check .` before opening a PR.
 
 Setup:

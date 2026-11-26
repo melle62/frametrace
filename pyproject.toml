@@ -10,8 +10,8 @@ readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.10"
-# The core stays stdlib-only for as long as possible so a fresh Python install can run it.
-dependencies = []
+# The core is stdlib-only. sv-ttk gives the window its Windows 11 look; the GUI also runs without it.
+dependencies = ["sv-ttk>=2.6"]
 classifiers = [
     "Operating System :: Microsoft :: Windows",
     "Programming Language :: Python :: 3",
