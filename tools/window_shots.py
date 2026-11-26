@@ -39,6 +39,7 @@ from frametrace import (
     hotkey,
     presentmon,
     report,
+    share,
     sysinfo,
     theme,
     trace,
@@ -261,10 +262,21 @@ def grab(root: tk.Tk, path: Path) -> None:
     print("wrote", path)
 
 
-def open_window(theme_name: str, captures: Path, setup_missing=False):
+def _offline(method, url, body, ctype):
+    """Sharing in screenshots never reaches the server."""
+    return 200, b'{"ok": true, "changed": true, "csv_upload": null}'
+
+
+def open_window(theme_name: str, captures: Path, setup_missing=False, sharing="off"):
+    """sharing: "off" (said no), "ask" (not asked yet: the consent banner) or "on"."""
     tmp = Path(tempfile.mkdtemp())
     gui.SETTINGS_PATH = tmp / "settings.json"
-    gui.SETTINGS_PATH.write_text(json.dumps({"theme": theme_name}), encoding="utf-8")
+    settings = {"theme": theme_name, "share": {"off": False, "ask": None, "on": True}[sharing]}
+    if sharing == "on":
+        settings["share_version"] = share.CONSENT_VERSION
+    gui.SETTINGS_PATH.write_text(json.dumps(settings), encoding="utf-8")
+    share.STATE_PATH = tmp / "shared.json"
+    share.request = _offline
     hotkey.HotkeyListener = _Listener
     sysinfo.collect = demo_system
     sysinfo.refresh_settings = lambda s: s
@@ -347,6 +359,21 @@ def shots(out: Path, themes: list[str], readme: bool) -> None:
         app.handle("started", {"foreground": "cs2.exe"})
         grab(root, out / f"{name}-recording.png")
         app.recorder = None
+        app.on_close()
+        root, app = open_window(name, data, sharing="ask")
+        grab(root, out / f"{name}-share-ask.png")
+        app.consent_yes()
+        for _ in range(100):  # let the (offline) sync finish, then handle its event
+            root.after(50)
+            root.update()
+            while not app.events.empty():
+                app.handle(*app.events.get())
+            if not app.share_busy:
+                break
+        grab(root, out / f"{name}-share-on.png")
+        app.ask_forget()
+        grab(root, out / f"{name}-share-delete.png")
+        app.cancel_confirm()
         app.on_close()
         root, app = open_window(name, empty, setup_missing=True)
         grab(root, out / f"{name}-setup.png")

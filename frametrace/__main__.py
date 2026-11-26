@@ -4,6 +4,7 @@ python -m frametrace                     open the Frametrace window
 python -m frametrace inspect CAPTURE.csv show how Frametrace reads a PresentMon CSV
 python -m frametrace report CAPTURE.csv  analyze a PresentMon CSV and print the report
 python -m frametrace compare A B         compare two captures (result.json or folders)
+python -m frametrace share-preview DIR   show exactly what sharing would send for a capture
 
 Both take --goal (avg_fps, lows, latency, stutter, target) and --target FPS.
 """
@@ -87,6 +88,10 @@ def main(argv: list[str] | None = None) -> int:
     p_compare.add_argument("after")
     p_compare.add_argument("--goal", choices=list(goals.GOALS), help=goal_help)
     p_compare.add_argument("--target", type=int, help="target FPS for --goal target")
+    p_preview = sub.add_parser(
+        "share-preview", help="show exactly what sharing would send for a capture folder"
+    )
+    p_preview.add_argument("folder")
     sub.add_parser("gui", help="open the Frametrace window (the default)")
     args = ap.parse_args(argv)
 
@@ -97,6 +102,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "compare":
         a, b = _load_result(args.before), _load_result(args.after)
         print(report.compare(a, b, args.goal, args.target))
+        return 0
+    if args.command == "share-preview":
+        from frametrace import share
+
+        print(share.preview(Path(args.folder)))
         return 0
     from frametrace import gui
 

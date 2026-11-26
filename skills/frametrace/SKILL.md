@@ -78,6 +78,10 @@ current settings (when Frametrace could read them), then the evidence. Read it i
 5. Say where each expected effect comes from: measured with Frametrace (this skill's tables), a
    guide, or general engine knowledge. Say plainly when you aren't sure a setting exists in this
    version or what it costs.
+6. A game skill's **Community data** table holds other people's one-change comparisons (median
+   change from A to B, and the GPUs and resolutions they were measured on). Prefer rows from a
+   similar GPU and resolution and from more people: one person is a hint, three or more is
+   solid. A row from the user's own kind of system beats the skill's single-PC measurements.
 
 ## Comparisons ("Frametrace compare")
 - `## Result for the goal` already applies the run-to-run noise bands: average and median 1%,

@@ -51,3 +51,11 @@ python tools/sync_skills.py --check  # what pytest checks
 
 The same tool regenerates `frametrace/skill_index.py` (process name → game skill) from each game
 skill's `metadata.process_names`: that's how the report's `Skill:` line knows the game has a skill.
+
+## Community data
+Each game skill (and the template) has a table between `frametrace:community-data` markers
+under "Measured costs". It's generated from the shared
+[Frametrace dataset](https://github.com/melle62/frametrace-data) by `tools/aggregate.py`:
+one-change comparisons by trusted contributors only, each person's runs counted once, with
+the GPUs and resolutions behind every row. Don't edit it by hand; a weekly workflow opens a
+PR when it changes. How runs are judged: [docs/data.md](../docs/data.md).

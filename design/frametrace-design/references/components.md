@@ -796,3 +796,19 @@ Same layout as the System tab: bordered `--surface1` sections of key/value rows 
 | CAPTURED GAME | Game, Store (Steam app and build), Executable, Version, Engine, Graphics API; silk keys, mono values, unknown values in `--text4` |
 | IN-GAME SETTINGS | Read from, Source (silk keys), then one row per setting with the **config key in Plex Mono `--text2`** (config names are data, not labels) and the value in mono `--text1`. Without a reader: one prose row in `--body-sm` saying the report will ask the AI to get them |
 
+
+## 42. SHARING (consent banner, rail toggle, foot row)
+
+Opt-in sharing with the Frametrace dataset (docs/data.md) reuses existing parts; nothing new is drawn.
+
+| Part | Value |
+|------|-------|
+| Consent banner | The alert banner (section 21), **info** variant (`--surface1`, lamp `--text3`): it's a question, not a problem. Text says what is sent and what never is, in that order, then that it can be turned off. Three secondary buttons, right-aligned: Share, Don't share, What's sent (opens PRIVACY.md). Lowest priority: setup issues, errors and confirmations go first. Asked once; never again after "Don't share" |
+| Rail toggle | A checkbox (section 10) under "Beep on start and stop": "Share captures with the dataset". Hidden when the build has no sharing endpoint |
+| Foot row | A third status row under PresentMon and Trace access: lamp + "Sharing" + mono value `off` / `sending` / `12 shared` / `retries later` (`--warning` lamp) |
+| Delete | A small **ghost** button under the system plate, "Delete my shared data", only once something was shared. It asks in the confirm banner (section 40), and deleting also turns sharing off |
+| Thanks | The toast (section 22), "Sharing is on. Thank you!" |
+
+## 43. CHANGES SUGGESTED BY (Compare)
+
+The last row of the "In-game settings changed" card, after a 1px `--border` rule: label "Changes suggested by" in `--text2`, then a read-only select (sections 13 and 36) with `—`, Claude, ChatGPT, Gemini, Another AI, A guide or video, My own idea. The choice is saved with capture B (`user.advice`). Shown when settings changed or weren't read; not when nothing changed.
