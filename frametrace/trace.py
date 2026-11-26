@@ -40,8 +40,16 @@ class Trace:
         return len(self.p50)
 
     def peak_ms(self) -> float:
-        """Largest P95 bucket: what the vertical scale has to show."""
-        return max((v for v in self.p95 if v is not None), default=0.0)
+        """What the vertical scale has to show: the P95 band without its top 1% of buckets.
+
+        At low frame rates a bucket holds only a few frames, so one hitch would set its P95
+        and squash the whole trace; hitches get their own ticks and label instead.
+        """
+        band = sorted(v for v in self.p95 if v is not None)
+        if not band:
+            return 0.0
+        robust = band[min(len(band) - 1, int(len(band) * 0.99))]
+        return max(robust, max((v for v in self.p50 if v is not None), default=0.0))
 
 
 def _pct(values: list[float], q: float) -> float:

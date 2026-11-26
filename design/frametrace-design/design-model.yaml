@@ -273,6 +273,9 @@ components:
     source: "derived"
     background: "{screen}"
     graticule: "{graticule}, 64px major / 16px minor"
+    divisions: "4 down. Across: 10 on the empty screen; with a trace, one per half time-label step (about 10), so every time label sits on a line"
+    scale: "mono caption beside the panel legend: 1 ms/div · 10 s/div · 99.0 s"
+    layers: "hitch markers, CH1 band, CH3, CH2, REF, CH1 bloom and median, hitch ticks (1px)"
     trace_width: 1.5
     legend: "CH1 FRAME TIME (yellow), CH2 GPU BUSY (cyan), CH3 CPU BUSY of the presenting thread (magenta)"
     line_caps: "butt"
@@ -283,6 +286,16 @@ components:
     width: 1.5
     use: "Compare view: capture A drawn as the scope's stored reference (REF A) under capture B's live CH1 trace. Median only, no band."
     justified_by: "Bench scopes show a stored waveform in white beside the live channel. Yellow stays the one live signal."
+  prose_numbers:
+    source: "derived"
+    rule: "Numbers inside sentences (verdict, checks, notes, banners) are set in Plex Mono {text1} with their unit; a no-break space keeps a number and its unit on one line"
+    justified_by: "Every number is a readout, even mid-sentence."
+  scrollbar:
+    source: "derived"
+    width: "6px, no arrows, no trough"
+    thumb: "{surface3}, {text4} on hover or drag, square ends"
+    gutter: "always reserved, so content keeps its right edge when a page starts to scroll"
+    justified_by: "A scope has no window chrome; scrolling is a quiet edge, not a control."
   delta_row:
     source: "derived"
     layout: "metric (body-sm, text2) | A (mono, text2, right) | B (mono, text1, right) | delta bar 160x8 | change (mono) | lamp + word"

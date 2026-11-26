@@ -33,7 +33,7 @@ frametrace = "frametrace.__main__:main"
 packages = ["frametrace"]
 
 [tool.setuptools.package-data]
-frametrace = ["assets/fonts/*.ttf", "assets/fonts/OFL.txt"]
+frametrace = ["assets/fonts/*.ttf", "assets/fonts/OFL.txt", "assets/*.png", "assets/*.ico"]
 
 [tool.ruff]
 line-length = 100

@@ -50,6 +50,15 @@ python tools/get_presentmon.py
 pytest
 ```
 
+Changed the window? Regenerate the README screenshots from synthetic demo captures (nothing on
+your PC is read) and look at every view in both modes:
+
+```powershell
+pip install pillow
+python tools/window_shots.py shots            # every view, dark and light
+python tools/window_shots.py docs\images --readme
+```
+
 ## Reporting bugs
 
 Attach the report, or the probe summary, and say which game, API and Windows build you used.

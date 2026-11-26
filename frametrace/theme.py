@@ -66,10 +66,51 @@ TYPE = {
     "mono": ("mono", 10),
     "mono_sm": ("mono", 9),
     "mono_xs": ("mono", 8),
+    "mono_head": ("mono_medium", 9),
     "readout": ("mono_medium", 22),
+    "readout_sm": ("mono_medium", 16),  # a readout that would not fit its tile
     "wordmark": ("sans_semibold", 12),
 }
 SPACE = {"2xs": 2, "xs": 4, "sm": 8, "md": 16, "lg": 24, "xl": 32, "2xl": 48}
+
+# Tk scales fonts (points) with the monitor's DPI but not pixel sizes. px() scales the
+# structural sizes (window, rail, scope, bars) by the same factor, so a 125% or 150%
+# Windows display gets the same layout as 100%, only larger.
+SCALE = 1.0
+HAIR = " "  # hair space: about 0.08em in IBM Plex, the silk-screen tracking
+
+
+def set_scale(root: tk.Misc) -> float:
+    """Read the display scale from Tk (1.0 at 96 DPI) and remember it for px()."""
+    global SCALE
+    try:
+        dpi = float(root.winfo_fpixels("1i"))
+    except Exception:  # noqa: BLE001 - no display: keep 1.0
+        dpi = 96.0
+    SCALE = scale_for(dpi)
+    return SCALE
+
+
+def scale_for(dpi: float) -> float:
+    """96 DPI and anything close to it is 1.0; above that, steps of 0.25 (125%, 150%...)."""
+    factor = dpi / 96.0
+    if factor < 1.12:
+        return 1.0
+    return min(3.0, round(factor * 4) / 4)
+
+
+def px(value: float) -> int:
+    """A pixel size from the design, scaled for the display."""
+    return round(value * SCALE)
+
+
+def track(text: str) -> str:
+    """Silk-screen tracking (0.08em) for uppercase labels: Tk has no letter-spacing."""
+    return HAIR.join(text)
+
+
+def untrack(text: str) -> str:
+    return text.replace(HAIR, "")
 
 
 def mix(fg: str, bg: str, alpha: float) -> str:
@@ -160,14 +201,38 @@ def apply(root: tk.Tk, name: str = "dark", fonts: dict | None = None) -> Theme:
     )
     style.configure("Mono.TEntry", **field, font=fonts["mono_sm"])
     style.map("Mono.TEntry", bordercolor=[("focus", c["accent"]), ("hover", c["text4"])])
-    style.configure("TCombobox", **field, arrowsize=13, background=c["surface2"])
+    # the arrow is a chevron inside the field, not a raised button with its own border
+    style.configure("TCombobox", **field, background=c["background"])
     style.map(
         "TCombobox",
         bordercolor=[("focus", c["accent"]), ("hover", c["text4"])],
         fieldbackground=[("readonly", c["background"]), ("disabled", c["surface1"])],
         foreground=[("disabled", c["text4"])],
-        background=[("active", c["surface3"]), ("pressed", c["surface3"])],
-        arrowcolor=[("disabled", c["text4"])],
+        lightcolor=[("focus", c["background"])],
+        darkcolor=[("focus", c["background"])],
+    )
+    chevron = _chevron_element(root, style, name, c)
+    style.layout(
+        "TCombobox",
+        [
+            (
+                "Combobox.field",
+                {
+                    "sticky": "nswe",
+                    "children": [
+                        (chevron, {"side": "right", "sticky": "ns"}),
+                        (
+                            "Combobox.padding",
+                            {
+                                "expand": "1",
+                                "sticky": "nswe",
+                                "children": [("Combobox.textarea", {"sticky": "nswe"})],
+                            },
+                        ),
+                    ],
+                },
+            )
+        ],
     )
     style.configure(
         "Vertical.TScrollbar",
@@ -188,6 +253,40 @@ def apply(root: tk.Tk, name: str = "dark", fonts: dict | None = None) -> Theme:
     root.option_add("*TCombobox*Listbox.font", fonts["mono_sm"])
     root.option_add("*TCombobox*Listbox.borderWidth", 0)
     return Theme(name, c, fonts)
+
+
+def _chevron_image(root: tk.Misc, color: str):
+    """A 1.5 px chevron-down, drawn pixel by pixel (Tk has no vector icons)."""
+    import tkinter as tk
+
+    size, arm = px(16), max(4, px(4))
+    img = tk.PhotoImage(master=root, width=size, height=size)
+    cx, cy = size // 2, size // 2 - arm // 2
+    thick = max(2, px(2))
+    for i in range(arm):
+        for d in range(thick):
+            img.put(color, (cx - arm + i, cy + i + d))
+            img.put(color, (cx + arm - 1 - i, cy + i + d))
+    return img
+
+
+def _chevron_element(root: tk.Misc, style, name: str, c: dict) -> str:
+    """Register the chevron element for this palette once per Tk interpreter."""
+    element = f"Chevron{name.title()}.downarrow"
+    if element not in style.element_names():
+        images = [_chevron_image(root, c[k]) for k in ("text3", "text1", "text4")]
+        style.element_create(
+            element,
+            "image",
+            images[0],
+            ("disabled", images[2]),
+            ("pressed", images[1]),
+            ("hover", images[1]),
+            sticky="",
+            padding=(px(4), 0, px(6), 0),
+        )
+        setattr(root, f"_frametrace_{element}", images)  # Tk keeps only a reference
+    return element
 
 
 def set_title_bar(root: tk.Tk, dark: bool) -> None:
