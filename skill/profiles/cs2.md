@@ -70,8 +70,11 @@ Frametrace reads `cs2_video.txt` from `Steam\userdata\<account>\730\local\cfg\` 
 one when several Steam accounts have played) and lists its `setting.*` entries. From the convar
 files in the same folder (`cs2_user_convars_0_slot0.vcfg`) and the install's
 `cs2_machine_convars.vcfg` it adds the rendering convars: names starting with `fps_max`, `r_`,
-`mat_` or `engine_low_latency`. That covers **Maximum FPS In Game** and **In Menus**; crosshair,
-binds, audio and HUD convars stay out.
+`mat_` or `engine_low_latency`. That covers **Maximum FPS In Game** and **In Menus** and **Boost
+Player Contrast**; crosshair, binds, audio and HUD convars stay out. Shipped defaults
+(`machine_convars_default.vcfg`) are skipped. A few cosmetic `r_` convars come along
+(`r_fullscreen_gamma`, `r_drawtracers_firstperson`, `r_show_build_info`,
+`r_spectator_flashbang_opacity`, `r_icon_image_cache_to_disk`): no effect on frame rate.
 
 Checked against the Video settings page on the maintainer's PC (2026-11-26). "Seen" marks a value
 matched to the menu; the rest of each range follows the menu's order and is unverified.
@@ -97,7 +100,8 @@ matched to the menu; the rest of each range follows the menu's order and is unve
 | `r_low_latency` | NVIDIA Reflex Low Latency | seen 0 = Disabled; 1 Enabled, 2 Enabled + Boost |
 | `fps_max` (convar) | Maximum FPS In Game | 0 = no cap; seen 0 in the menu |
 | `fps_max_ui` (convar) | Maximum FPS In Menus | seen 120 in the menu |
-| `r_player_visibility_mode` (convar) | Boost Player Contrast | 1 = Enabled (unverified key) |
+| `fps_max_tools` (convar) | not in the menu | seen 120 |
+| `r_player_visibility_mode` (convar) | Boost Player Contrast | seen 1 = Enabled |
 | `refreshrate_numerator` / `_denominator` | Refresh Rate | seen 0 / 0 |
 | `monitor_index`, `high_dpi`, `fullscreen_min_on_focus_loss` | display options | no effect on FPS |
 
@@ -107,11 +111,21 @@ matched to the menu; the rest of each range follows the menu's order and is unve
 - **Higher 1% lows (present to present):** Reflex Off gave the highest (202 vs 154 with Boost).
   The CPU-side lows moved less (205 vs 191).
 - **Particle Detail High → Low, MSAA 4X → 2X, Ambient Occlusion High → Disabled** (all three at
-  once; 1920 × 1440, GPU-limited, 79 s captures in a scene that isn't repeatable): GPU busy per
-  frame 2.31 → 2.03 ms (−12%), average 372 → 420 FPS, 1% low 147 → 164. The 1% low stayed at 39%
-  of the average and hitch time stayed around 3%, so these settings make every frame cheaper but
-  don't remove spikes. One run in between showed no hitches at all (1% low 215); a repeat with the
-  same settings didn't, so that run was the scene, not the settings.
+  once; 1920 × 1440, GPU-limited, fixed 79 s captures started by hand on the benchmark map):
+
+  | Run | Settings | 1% low | 0.1% low | Average | Time in hitches | GPU busy |
+  |---|---|---|---|---|---|---|
+  | 14:04 | before | 146.7 | 80.7 | 372.2 | 3.7% | 2.31 ms |
+  | 14:10 | after | 214.6 | 184.9 | 440.9 | 0.0% | 2.04 ms |
+  | 14:27 | after | 163.6 | 99.9 | 419.8 | 3.1% | 2.03 ms |
+  | 14:44 | after | 212.2 | 182.0 | 439.3 | 0.0% | 2.03 ms |
+
+  GPU time per frame fell 12% for certain. Runs come in two states: clean (hitches ~0%) or
+  hitchy (3–4% of the time in hitches, worst frames 15–20 ms). The two clean runs agree within
+  1–2%, so they're repeatable. Between the hitchy runs the settings gave +12% on the average
+  and the 1% low. The only "before" run was hitchy, so how much of the jump to a ~213 FPS 1%
+  low the settings bought is open until a clean "before" run exists. What makes a run hitchy
+  isn't known yet (candidates: the first pass after loading the map, where the capture starts).
 - Not measured yet: each of the three on its own, shadows, shader detail, HDR, FSR, a frame cap.
 
 ## CPU-heavy settings
