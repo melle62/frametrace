@@ -812,3 +812,18 @@ Opt-in sharing with the Frametrace dataset (docs/data.md) reuses existing parts;
 ## 43. CHANGES SUGGESTED BY (Compare)
 
 The last row of the "In-game settings changed" card, after a 1px `--border` rule: label "Changes suggested by" in `--text2`, then a read-only select (sections 13 and 36) with `—`, Claude, ChatGPT, Gemini, Another AI, A guide or video, My own idea. The choice is saved with capture B (`user.advice`). Shown when settings changed or weren't read; not when nothing changed.
+
+## 44. ANSWER BLOCK (the AI's reply, plain text)
+
+The AI's answer to a report or comparison is the one Frametrace surface drawn outside the app, in whatever chat the user pastes into. It can't carry colour or fonts, so it carries the language: one code-fenced text block (the chat's mono font stands in for Plex Mono), read at a glance between runs. Source of truth: the "Answer format" in `skills/frametrace/SKILL.md`; the report and comparison prompts carry the same templates (`report.REPORT_ANSWER`, `report.COMPARE_ANSWER`, kept equal by a test).
+
+| Part | Value |
+|------|-------|
+| Width | Every line under 56 characters, so it fits a phone without wrapping |
+| Header | `FRAMETRACE · <GAME> · <GOAL>` in capitals, then the run (label or time) and the limit: the verdict line, claim then number |
+| Labels | Silk-screen words in capitals at the left edge: `NOW`, `CHANGED`, `FIX`, `KEEP` / `UNDO`, `NEXT`, `NOTE`, `vs BASE` |
+| Delta rows | The delta row (section 32) in text: lamp, status word, metric, A → B with unit, change. `■` (U+25A0) for BETTER, WORSE; `□` (U+25A1) for SAME, the idle lamp. The status comes from the comparison, never recomputed. At most four rows |
+| vs BASE | One row, no lamp: B against the first run in the chat, so drift across a series shows |
+| Numbers | Always with a unit (`FPS`, `ms`, `%`, `pp`); expected effects as ranges with a source (`measured`, `community (N people)`, `guide`, `engine`) |
+| Footer | `One change per run. Same scene, same length, then paste the comparison.` |
+| Voice | Bench engineer (the Voice line in `../SKILL.md`): no hype, no emoji, no prose around the block unless the user asks why |
