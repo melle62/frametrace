@@ -61,36 +61,47 @@ last_verified: 2026-11-26
 
 ## Settings file
 Frametrace reads `cs2_video.txt` from `Steam\userdata\<account>\730\local\cfg\` (the newest
-one when several Steam accounts have played) and lists its `setting.*` entries. `fps_max` and
-other console variables aren't in that file, so the AI has to ask for them.
+one when several Steam accounts have played) and lists its `setting.*` entries. Not in that file:
+**Maximum FPS In Game** (`fps_max`), **Maximum FPS In Menus** (`fps_max_ui`) and **Boost Player
+Contrast**. The AI has to ask for those.
 
-Menu names below are from the Video settings page. **Not yet checked against a real
-`cs2_video.txt` on the maintainer's PC**: verify, then remove this line.
+Checked against the Video settings page on the maintainer's PC (2026-11-26). "Seen" marks a value
+matched to the menu; the rest of each range follows the menu's order and is unverified.
 
 | Config key | Menu name | Values |
 |---|---|---|
-| `defaultres` × `defaultresheight` | Resolution | pixels |
-| `fullscreen` / `nowindowborder` | Display Mode | 1 = fullscreen; 0 + borderless = fullscreen windowed |
-| `mat_vsync` | Wait for Vertical Sync | 0 off, 1 on |
-| `msaa_samples` | Multisample Anti-Aliasing Mode | 0 none, 2, 4, 8 |
-| `r_csgo_cmaa_enable` | Multisample Anti-Aliasing Mode: CMAA2 | 1 when CMAA2 is chosen |
-| `videocfg_shadow_quality` | Global Shadow Quality | 0 low … 3 very high |
-| `videocfg_dynamic_shadows` | Dynamic Shadows | 0 sun only, 1 all |
-| `videocfg_texture_detail` | Model / Texture Detail | 0 low … 2 high |
-| `r_texturefilteringquality` | Texture Filtering Mode | 0 bilinear … 5 anisotropic 16x |
-| `shaderquality` | Shader Detail | 0 low, 1 high |
-| `videocfg_particle_detail` | Particle Detail | 0 low … 2 high |
-| `videocfg_ao_detail` | Ambient Occlusion | 0 disabled … 3 high |
-| `videocfg_hdr_detail` | High Dynamic Range | 3 performance, -1 quality |
-| `videocfg_fsr_detail` | FidelityFX Super Resolution | 0 disabled, 1 ultra quality … 4 performance |
-| `r_low_latency` | NVIDIA Reflex Low Latency | 0 disabled, 1 enabled, 2 enabled + boost |
+| `defaultres` × `defaultresheight` | Resolution | pixels; seen 1920 × 1440 |
+| `aspectratiomode` | Aspect Ratio | seen 0 with 1920 × 1440 (4:3) |
+| `fullscreen` / `nowindowborder` / `coop_fullscreen` | Display Mode | seen 0 / 1 / 1 |
+| `mat_vsync` | V-Sync | seen 0 = Disabled |
+| `msaa_samples` | Multisampling Anti-Aliasing Mode | seen 2 = 2X MSAA, 4 = 4X MSAA; 0 none, 8 = 8X |
+| `r_csgo_cmaa_enable` | Multisampling Anti-Aliasing Mode: CMAA2 | 1 when CMAA2 is chosen; seen 0 |
+| `videocfg_shadow_quality` | Global Shadow Quality | seen 2 = High; 0 Low, 1 Medium, 3 Very High |
+| `videocfg_dynamic_shadows` | Dynamic Shadows | seen 1 = All; 0 = Sun Only |
+| `videocfg_texture_detail` | Model / Texture Detail | seen 2 = High; 0 Low, 1 Medium |
+| `r_texturefilteringquality` | Texture Filtering Mode | seen 3 = Anisotropic 4X; 0 Bilinear, 1 Trilinear, 2 2X, 4 8X, 5 16X |
+| `shaderquality` | Shader Detail | seen 1 = High; 0 Low |
+| `videocfg_particle_detail` | Particle Detail | seen 0 = Low; 2 was the default (High) |
+| `videocfg_ao_detail` | Ambient Occlusion | seen 0 = Disabled; 2 was the default (likely High, 1 Medium) |
+| `videocfg_parallax_detail` | Parallax Occlusion Mapping | seen 1 = Enabled; 0 Disabled |
+| `videocfg_hdr_detail` | High Dynamic Range | seen -1 = Quality; 3 Performance |
+| `videocfg_fsr_detail` | FidelityFX Super Resolution | seen 0 = Disabled (Highest Quality); 1 Ultra Quality … 4 Performance |
+| `r_low_latency` | NVIDIA Reflex Low Latency | seen 0 = Disabled; 1 Enabled, 2 Enabled + Boost |
+| `refreshrate_numerator` / `_denominator` | Refresh Rate | seen 0 / 0 |
+| `monitor_index`, `high_dpi`, `fullscreen_min_on_focus_loss` | display options | no effect on FPS |
 
 ## Settings by goal
 - **Lower latency:** Reflex Enabled + Boost cut median PC latency 7.25 → 6.30 ms and P95
   11.8 → 9.2 ms, for about 4% average FPS and lower present-to-present 1% lows (measured above).
 - **Higher 1% lows (present to present):** Reflex Off gave the highest (202 vs 154 with Boost).
   The CPU-side lows moved less (205 vs 191).
-- Not measured yet: shadow, MSAA and FSR costs on the benchmark map.
+- **Particle Detail High → Low, MSAA 4X → 2X, Ambient Occlusion High → Disabled** (all three at
+  once; 1920 × 1440, GPU-limited, 79 s captures in a scene that isn't repeatable): GPU busy per
+  frame 2.31 → 2.03 ms (−12%), average 372 → 420 FPS, 1% low 147 → 164. The 1% low stayed at 39%
+  of the average and hitch time stayed around 3%, so these settings make every frame cheaper but
+  don't remove spikes. One run in between showed no hitches at all (1% low 215); a repeat with the
+  same settings didn't, so that run was the scene, not the settings.
+- Not measured yet: each of the three on its own, shadows, shader detail, HDR, FSR, a frame cap.
 
 ## CPU-heavy settings
 Not measured yet.
