@@ -356,6 +356,7 @@ def test_recorder_end_to_end(tmp_path, monkeypatch):
     folder: Path = payload["folder"]
     assert folder.name.endswith("-game")
     assert (folder / "result.json").is_file() and (folder / "report.md").is_file()
+    assert (folder / "trace.json").is_file()
     result = payload["result"]
     assert result["capture"]["app"] == "game.exe"
     assert result["capture"]["reason"] == "foreground window process"

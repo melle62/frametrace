@@ -12,6 +12,11 @@ which reads frame events from Windows and doesn't touch the game.
 > **Status: alpha.** Capture, analysis, system info, report and compare work. Thresholds for the
 > CPU/GPU split are still being calibrated with real captures. See the [roadmap](#roadmap).
 
+![The Frametrace window: verdict, frame-time scope, readouts and checks for a CS2 capture](docs/images/window-dark.png)
+
+<sub>The window with synthetic demo data shaped like a CS2 benchmark run. Light mode:
+[docs/images/window-light.png](docs/images/window-light.png).</sub>
+
 ## How it works
 
 ```
@@ -28,8 +33,8 @@ F10 in game ──► PresentMon records every frame ──► F10 again (or aft
 ```
 
 The report covers average FPS, 1% and 0.1% lows, the worst second, P99 frame time, stutter
-spikes, and the share of frames limited by the CPU and by the GPU, with estimated FPS ceilings
-for each. Automatic checks catch the classic problems: RAM running below its rated speed
+spikes, the share of frames limited by the CPU and by the GPU, how fast the GPU alone could go,
+and PC latency when the game uses NVIDIA Reflex. Automatic checks catch the classic problems: RAM running below its rated speed
 (EXPO/XMP off), single-channel RAM, a display running below its maximum refresh rate, frames
 going through the desktop compositor, VSync, FPS caps, and power plan, Game Mode, HAGS and
 memory integrity. Compare mode puts two captures side by side (before and after an upgrade
@@ -40,9 +45,10 @@ or a settings change).
 You need Python 3.10 or newer.
 
 ```powershell
-python -m pip install sv-ttk      # Windows 11 look for the window (optional)
 python -m frametrace              # or double-click Frametrace.bat
 ```
+
+No extra packages: the window is plain tkinter and bundles its fonts.
 
 On first start the window offers to download PresentMon (Intel's free capture tool, checked
 against a pinned SHA-256). Recording needs administrator rights or membership in the
@@ -51,10 +57,11 @@ against a pinned SHA-256). Recording needs administrator rights or membership in
 1. Start a game and press **F10** (change it in the window). You'll hear a beep.
 2. Play normally. Recording stops after the chosen length (30 s by default), or when you press
    F10 again in manual mode.
-3. The report appears in the window and is already on your clipboard. Paste it into any AI.
+3. The verdict, the frame-time scope and the readouts appear in the window, and the report is
+   already on your clipboard. Paste it into any AI.
 
-Captures are saved in `Documents\Frametrace\captures`. Select two in the **Captures** tab to
-compare them.
+Captures are saved in `Documents\Frametrace\captures` and listed on the left. Ctrl+click a
+second capture to compare the two.
 
 Command line: `python -m frametrace report capture.csv` analyzes an existing PresentMon CSV,
 and `python -m frametrace compare before after` compares two saved captures.
@@ -66,7 +73,11 @@ For PresentMon details (CSV formats, permissions, anti-cheat), see
 
 ```
 frametrace/          core package, game-agnostic (no game-specific code, ever)
-  gui.py             the window (tkinter + Sun Valley theme)
+  gui.py             the window (tkinter, bench-instrument design)
+  theme.py           design tokens: colors, IBM Plex fonts, ttk styles
+  instruments.py     scope, readouts, lamps, buttons drawn with plain tk widgets
+  summary.py         wording of the summary view (verdict, readouts, details)
+  trace.py           compact frame-time trace for the scope (trace.json)
   capture.py         recording controller: PresentMon start/stop, game pick, saving
   hotkey.py          global hotkey (RegisterHotKey)
   analyze.py         frame stats + CPU/GPU bottleneck
@@ -76,6 +87,8 @@ frametrace/          core package, game-agnostic (no game-specific code, ever)
   process.py         foreground process + automatic game detection
   presentmon.py      locating and driving PresentMon
   download.py        PresentMon download with hash check
+  assets/fonts/      IBM Plex Sans and Mono (SIL OFL 1.1)
+design/              the Frametrace design system (hue skill: tokens, components, previews)
 skill/               the AI skill (SKILL.md) and optional per-game profiles
 tools/               setup and probe scripts
 tests/               pytest suite and fixtures
@@ -89,9 +102,19 @@ bin/                 PresentMon goes here (not committed)
 - [x] PresentMon version, CSV schemas, permissions, game auto-detection design
 - [x] Window with hotkey capture, fixed or manual length
 - [x] Stats, bottleneck detection, system info, checks, report, compare
+- [x] Brand and window redesign ([design system](design/frametrace-design/SKILL.md))
 - [ ] Real captures across DX11 / DX12 / Vulkan / OpenGL to calibrate thresholds
 - [ ] Skill (`skill/SKILL.md`) tested with real reports
 - [ ] Packaged `.exe` release
+
+## Design
+
+Frametrace looks like a bench instrument: warm graphite panels, one yellow trace, cyan for the
+GPU, magenta for the CPU, IBM Plex Sans for words and IBM Plex Mono for every number. The design
+system lives in [design/frametrace-design](design/frametrace-design/SKILL.md), generated with the
+[hue](https://github.com/dominikmartn/hue) skill from one `design-model.yaml`. Open
+`preview.html`, `component-library.html`, `landing-page.html` or `app-screen.html` there to see
+it in both modes.
 
 ## Contributing
 

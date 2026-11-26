@@ -367,18 +367,22 @@ def display_info(rows: list[dict]) -> Display:
     )
 
 
+def trim_start(rows: list[dict], skip_start_s: float = SKIP_START_S) -> tuple[list[dict], float]:
+    """Drop the first skip_start_s seconds (if the capture is long enough). Returns (rows, skipped)."""
+    times = [r["time_s"] for r in rows if r.get("time_s") is not None]
+    if not skip_start_s or not times or times[-1] - times[0] < MIN_FOR_SKIP_S:
+        return rows, 0.0
+    cutoff = times[0] + skip_start_s
+    return [r for r in rows if r.get("time_s") is None or r["time_s"] >= cutoff], skip_start_s
+
+
 def analyze(rows: list[dict], app: str, pid: int, skip_start_s: float = SKIP_START_S) -> Analysis:
     """Analyze the frames of one process (ideally its main swapchain).
 
     The first skip_start_s seconds are left out: starting the trace and pressing the
     hotkey can cause a hitch that isn't the game's fault.
     """
-    skipped = 0.0
-    times = [r["time_s"] for r in rows if r.get("time_s") is not None]
-    if skip_start_s and times and times[-1] - times[0] >= MIN_FOR_SKIP_S:
-        cutoff = times[0] + skip_start_s
-        rows = [r for r in rows if r.get("time_s") is None or r["time_s"] >= cutoff]
-        skipped = skip_start_s
+    rows, skipped = trim_start(rows, skip_start_s)
     stats = frame_stats(rows)
     display = display_info(rows)
     return Analysis(

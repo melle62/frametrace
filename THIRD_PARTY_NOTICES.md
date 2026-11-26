@@ -34,3 +34,17 @@ OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
 ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE
 OR OTHER DEALINGS IN THE SOFTWARE.
 ```
+
+## IBM Plex Sans and IBM Plex Mono (IBM Corp.)
+
+The window bundles five static IBM Plex TTFs in `frametrace/assets/fonts/` (Sans Regular,
+Medium, SemiBold; Mono Regular, Medium), unmodified, from
+https://github.com/IBM/plex. They are licensed under the SIL Open Font License 1.1; the full
+license is in `frametrace/assets/fonts/OFL.txt`. Copyright © 2017 IBM Corp. with Reserved Font
+Name "Plex".
+
+## Tabler Icons (design previews only)
+
+The HTML previews in `design/frametrace-design/` load Tabler Icons (MIT,
+https://github.com/tabler/tabler-icons) from a CDN. Nothing from Tabler is bundled.
+

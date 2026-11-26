@@ -33,8 +33,11 @@ Ground rules:
   from PresentMon data and system info only.
 - **Never hardcode PresentMon column names outside `frametrace/columns.py`.** Use the canonical
   names it defines.
-- The core (everything except `gui.py`) is **stdlib-only**. The GUI uses `sv-ttk` for its
-  Windows 11 theme and still runs without it. Ask in an issue before adding a dependency.
+- Frametrace is **stdlib-only**, the window included (plain tkinter, fonts bundled). Ask in an
+  issue before adding a dependency.
+- UI changes follow the design system in `design/frametrace-design`: tokens in
+  `frametrace/theme.py`, instrument widgets in `frametrace/instruments.py`. One yellow element
+  per screen, numbers in IBM Plex Mono, cyan for the GPU and magenta for the CPU.
 - Run `pytest` and `ruff check .` before opening a PR.
 
 Setup:

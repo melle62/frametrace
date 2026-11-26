@@ -24,7 +24,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from frametrace import analyze, columns, presentmon, process, report, sysinfo
+from frametrace import analyze, columns, presentmon, process, report, sysinfo, trace
 
 log = logging.getLogger(__name__)
 CREATE_NO_WINDOW = 0x08000000
@@ -257,6 +257,12 @@ class Recorder:
         except OSError:
             pass
         (folder / "result.json").write_text(json.dumps(result, indent=1), encoding="utf-8")
+        try:  # the scope view is a bonus: never fail a capture over it
+            tr = trace.build(main, skip_start_s=analysis.skipped_start_s)
+            if tr is not None:
+                trace.save(tr, folder)
+        except Exception:
+            log.exception("could not save trace.json")
         return result, folder
 
     def _close_log(self) -> None:

@@ -240,7 +240,7 @@ this. **Verify:** CS2 (VAC) and DayZ (BattlEye).
 
 ## 8. Test plan
 
-Setup (once): Python 3.10 or newer, the repo, `python -m pip install sv-ttk`, then
+Setup (once): Python 3.10 or newer and the repo, then
 `python -m frametrace` (or `Frametrace.bat`). The window offers the PresentMon download and
 the permission setup.
 
