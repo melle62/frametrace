@@ -138,6 +138,9 @@ def source2_convar_files(video: Path, game: GameInfo) -> list[Path]:
             found += list(Path(game.install_dir).glob("game/*/cfg/*machine_convars*.vcfg"))
     except OSError:
         return []
+    # Shipped defaults (machine_convars_default.vcfg) aren't the user's settings, and a game
+    # update gives them a new date, which would let them win over what the user set
+    found = [p for p in found if "default" not in p.name.lower()]
     files = [(m, p) for p in found if (m := _mtime(p)) is not None]
     return [p for _, p in sorted(files)]
 

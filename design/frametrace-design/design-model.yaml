@@ -304,8 +304,30 @@ components:
     justified_by: "The bar shows size and direction at a glance; the lamp carries the status color, the number stays exact."
   compare_view:
     source: "derived"
-    order: "capture chips A and B, verdict (headline + better/worse sentence + notes), scope with REF A and CH1 B, delta rows grouped by Frame rate / Frame times / Load per frame / Latency, two split bars, system changes"
-    noise: "Changes inside run-to-run noise read SAME: average and median 1%, lows and P99 3%, 0.1% low and worst second 5%, max frame time 15%."
+    order: "capture chips A and B, verdict led by the goal (headline, deciding metrics, side effects, notes), in-game settings changed, scope with REF A and CH1 B, delta rows grouped by Frame rate / Frame times / Load per frame / Latency, two split bars, system changes"
+    noise: "Changes inside run-to-run noise read SAME: average and median 1%, lows and P99 3%, 0.1% low and worst second 5%, max frame time 15%, seconds at a target 3 pp."
+  goal_select:
+    source: "derived"
+    place: "first row of the rail's CAPTURE section; a Target FPS mono field appears under it only for 'Hit a target FPS'"
+    justified_by: "The goal decides what the instrument reports, so it is set before the capture, like a scope's trigger."
+  capture_list:
+    source: "derived"
+    group_heading: "10px chevron ({text3}, 1.5px, square caps), silk label ({text3} for a game, {text2} for a user group), mono count {text4}; click folds"
+    row_title: "the user's label, else the game"
+    keys: "F2 rename, Delete asks first, arrows follow the visible order"
+    justified_by: "A bench log: runs filed by game or by test session, each one named for what changed."
+  text_dialog:
+    source: "derived"
+    layout: "subheading title, body-sm prompt in {text2}, one field, Cancel (ghost) then Save (primary) right-aligned"
+    justified_by: "The only modal: one question, one field."
+  confirm_banner:
+    source: "derived"
+    variant: "warning banner with two secondary actions (Delete, Cancel); names what goes and where (Recycle Bin)"
+    justified_by: "A destructive question sits above the content instead of covering it."
+  game_tab:
+    source: "derived"
+    layout: "System tab sections: CAPTURED GAME (silk keys), IN-GAME SETTINGS (config keys in Plex Mono {text2}, values mono {text1})"
+    justified_by: "Config keys are data copied from a file, so they read as mono, not as silk-screen labels."
   input:
     source: "derived"
     background: "{background}"
@@ -346,7 +368,7 @@ app_screen:
   frame_params:
     title: "Frametrace"
     chrome: "windows-11"   # Frametrace is Windows-only: dark title bar, caption buttons on the right, no traffic lights
-  content_seed: "The Frametrace window after a 100 s CS2 capture (the Reflex On run from the CS2 test session). Top bar: wordmark, status lamp READY, hotkey hint, Start capture. Left rail: capture controls (hotkey F10, fixed length 100 s, game auto-detect, beep) and the list of eight captures from the session, one selected. Main: capture header with display-path tags, verdict (GPU-limited, 93% of frames), the scope strip with three channels and one hitch marker, five readouts (426.7 FPS, 1% low 169, CPU-side 1% low 199, PC latency 6.8 ms, P95 10.5 ms), the bottleneck split bar, the checks list, and the action row (Copy report, Open folder, Compare)."
+  content_seed: "The Frametrace window after a 100 s CS2 capture (the Reflex On run from the CS2 test session). Top bar: wordmark, status lamp READY, hotkey hint, Start capture. Left rail: capture controls (goal Higher 1% lows, hotkey F10, fixed length 100 s, game auto-detect, beep) and the captures list grouped by game or test session (a 'Benchmark map' group with labelled runs such as 'Baseline' and 'Shadows medium'), one selected. Main: capture header with display-path tags, verdict (GPU-limited, 93% of frames), the scope strip with three channels and one hitch marker, five readouts (426.7 FPS, 1% low 169, CPU-side 1% low 199, PC latency 6.8 ms, P95 10.5 ms), the bottleneck split bar, the checks list, and the action row (Copy report, Open folder, Compare)."
   required_tokens_checklist:
     - "background, surface1, surface2, surface3, border, border_visible"
     - "text1, text2, text3, text4"

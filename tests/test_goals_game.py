@@ -298,6 +298,26 @@ def test_source2_reads_rendering_convars_next_to_the_video_config(tmp_path):
     assert "cs2_user_convars_0_slot0.vcfg" in found.source
 
 
+def test_source2_shipped_defaults_never_override_the_user(tmp_path):
+    import os
+    import time
+
+    exe = steam_library(tmp_path)
+    cfg = tmp_path / "Steam" / "userdata" / "42" / "730" / "local" / "cfg"
+    cfg.mkdir(parents=True)
+    (cfg / "cs2_video.txt").write_text(CS2_VIDEO, encoding="utf-8")
+    user = cfg / "cs2_user_convars_0_slot0.vcfg"
+    user.write_text(CS2_CONVARS.replace('"400.000000"', '"0"'), encoding="utf-8")  # no cap
+    shipped = exe.parents[2] / "csgo" / "cfg" / "machine_convars_default.vcfg"
+    shipped.parent.mkdir(parents=True)
+    shipped.write_text('"config" { "convars" { "fps_max" "400" } }', encoding="utf-8")
+    later = time.time() + 60  # a game update just rewrote the defaults
+    os.utime(shipped, (later, later))
+    found = gamesettings.read_source2(game.identify("cs2.exe", str(exe)), tmp_path / "Steam")
+    assert dict(found.settings)["fps_max"] == "0"  # the user's value, not the newer default
+    assert "machine_convars_default" not in found.source
+
+
 def _with_settings(r, pairs, reader="x"):
     r["game_settings"] = {"reader": reader, "source": "y", "settings": [list(p) for p in pairs]}
     return r

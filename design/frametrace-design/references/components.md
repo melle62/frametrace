@@ -708,14 +708,15 @@ Rows sit in groups with a silk-screen group label: FRAME RATE, FRAME TIMES, LOAD
 
 Read top to bottom like the summary view:
 
-1. **Capture chips.** `A` (neutral swatch, the older capture) and `B` (yellow swatch), each with game, time, length and average FPS in mono.
-2. **Verdict.** Headline from the average: "B is 4.2% faster on average." or "Same average FPS." Then one sentence: "Better: ... Worse: ..." with the key metrics (1% low, CPU-side 1% low, P99, PC latency) and their values. Notes below in `--text3`: the limit moved, different games, different lengths.
-3. **Scope.** REF A under CH1 B, hitch markers of B only.
-4. **Deltas.** Delta rows by group.
-5. **Bottleneck.** Two split bars, A then B, each labelled and with percentages.
-6. **System changes.** One row per difference (`RAM speed  5600 MT/s  6000 MT/s`) with an info lamp, or one ok lamp and "No system differences."
+1. **Capture chips.** `A` (neutral swatch, the older capture) and `B` (yellow swatch), each with its title (the user's label, else the game), time, length and average FPS in mono.
+2. **Verdict, led by the goal.** Headline: "B is better for higher 1% lows.", "B is worse for a higher average FPS." or "No clear change for less stutter." Then one row per deciding metric of the goal (lamp + word + metric + mono change and values), then side effects: other key metrics that moved beyond noise. Notes below in `--text3`: settings unchanged but results moved, the limit moved, different games, different lengths.
+3. **In-game settings changed.** One row per changed config key: info lamp, key in Plex Mono `--text2`, A value `--text3`, arrow `--text4`, B value `--text1`. Or one lamp and a sentence: ok "No change in the game's settings file." / info "Not read for this game: tell the AI what you changed."
+4. **Scope.** REF A under CH1 B, hitch markers of B only.
+5. **Deltas.** Delta rows by group.
+6. **Bottleneck.** Two split bars, A then B, each labelled and with percentages.
+7. **System changes.** One row per difference (`RAM speed  5600 MT/s  6000 MT/s`) with an info lamp, or one ok lamp and "No system differences."
 
-Run-to-run noise bands (measured on CS2): average and median 1%, lows and P99 3%, 0.1% low and worst second 5%, max frame time 15%, hitch time 0.2 pp, latency 3% (median) and 5% (P95).
+Run-to-run noise bands (measured on CS2): average and median 1%, lows and P99 3%, 0.1% low and worst second 5%, max frame time 15%, hitch time 0.2 pp, latency 3% (median) and 5% (P95), seconds at a target 3 pp.
 
 
 ## 34. NUMBERS IN PROSE
@@ -740,3 +741,58 @@ Run-to-run noise bands (measured on CS2): average and median 1%, lows and P99 3%
 ## 36. SELECT CHEVRON
 
 The select trigger's arrow is a `ti-chevron-down` drawn inside the field (`--text3`, `--text1` on hover), with no button, divider or border of its own. In Tk it is an image element in the combobox layout.
+
+## 37. GOAL SELECT (rail)
+
+| Property | Value |
+|----------|-------|
+| Place | First row of the rail's CAPTURE section, above Hotkey |
+| Goal | Read-only select (section 36 chevron), `--body-sm`: Higher average FPS, Higher 1% lows, Lower latency, Less stutter, Hit a target FPS |
+| Target | Second row, only for "Hit a target FPS": mono field (`--mono-sm`) with the unit `FPS` in `--text3` after it; placeholder `empty = refresh rate` in `--text4` mono |
+| Effect | The goal leads the summary verdict, the report and the compare verdict of whatever is shown, and is saved with the next capture |
+
+## 38. CAPTURE LIST (rail pattern)
+
+| Part | Treatment |
+|------|-----------|
+| Group heading | 10px chevron (1.5px stroke, square caps, `--text3`; right when folded, down when open), silk label, mono count in `--text4` right-aligned; 10px above, 4px below; click folds, right-click opens the group menu |
+| Heading color | `--text3` for a game's default group, `--text2` for a group the user named |
+| Order | Groups by their newest capture; captures inside newest first |
+| Row title | The user's label, else the game's name; meta line and FPS as in section 4 |
+| Row menu | Open folder, Copy report / Rename…, Move to group ▸ (the user's groups, New group…, Back under its game) / Compare with selected / Delete… — group and delete act on both rows when two are selected |
+| Group menu | Rename group…, Ungroup (user groups only) / Delete all N captures… |
+| Keys | F2 renames the selected capture, Delete asks to delete it, ↑ ↓ follow the list as shown (folded groups skipped) |
+
+## 39. TEXT DIALOG
+
+The one modal in the app: a single text question (rename a capture, name a group). Section 7's modal, adapted to Tk.
+
+| Property | Value |
+|----------|-------|
+| Window | Native title bar in the housing's colours (as the main window), `--background`, not resizable, centred over the main window a third of the way down |
+| Padding | 18px top, 20px sides, 16px bottom |
+| Title | `--subheading`, `--text1` |
+| Prompt | `--body-sm`, `--text2`, wraps at 380px, 6px above / 14px below |
+| Field | Input (section 3) in `--body-sm`; a select with the user's groups when naming a group |
+| Actions | Right-aligned, 16px above: Cancel (ghost), Save (primary, last). Enter saves, Esc cancels |
+
+## 40. CONFIRM BANNER
+
+A question that would be destructive gets the alert banner (section 21) instead of a modal, so it never covers the capture it is about.
+
+| Property | Value |
+|----------|-------|
+| Variant | Warning (`--warning-bg`, lamp `--warning`) |
+| Text | What goes, named and timed, then where: "Delete DayZ from 26 Nov 21:40? The folder goes to the Recycle Bin." |
+| Actions | Two secondary buttons, right-aligned: Delete, Cancel (the one place the banner has two actions) |
+| Priority | Above setup and error banners until answered |
+
+## 41. GAME TAB
+
+Same layout as the System tab: bordered `--surface1` sections of key/value rows with 1px `--border` rules between rows.
+
+| Section | Rows |
+|---------|------|
+| CAPTURED GAME | Game, Store (Steam app and build), Executable, Version, Engine, Graphics API; silk keys, mono values, unknown values in `--text4` |
+| IN-GAME SETTINGS | Read from, Source (silk keys), then one row per setting with the **config key in Plex Mono `--text2`** (config names are data, not labels) and the value in mono `--text1`. Without a reader: one prose row in `--body-sm` saying the report will ask the AI to get them |
+
