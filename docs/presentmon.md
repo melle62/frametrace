@@ -1,8 +1,9 @@
 # PresentMon setup and findings
 
 Status: researched 2026-11-26 against PresentMon **v2.6.0**: the release notes, the source at the
-`v2.6.0` tag, the strings in the released exe, and a first real capture on Windows 11. The items marked **verify** need real
-captures on Windows. `tools/probe_presentmon.py` is built to answer them.
+`v2.6.0` tag, the strings in the released exe, and a first real capture on Windows 11. The items
+marked **verify** need real game captures, made with the Frametrace window or
+`tools/probe_presentmon.py`.
 
 ## 1. Which PresentMon
 
@@ -12,7 +13,7 @@ captures on Windows. `tools/probe_presentmon.py` is built to answer them.
 | File | `PresentMon-2.6.0-x64.exe`, the standalone console app (957 KB, no installer, no service) |
 | URL | https://github.com/GameTechDev/PresentMon/releases/download/v2.6.0/PresentMon-2.6.0-x64.exe |
 | SHA-256 | `b2a706bc6ad475749e3b7e3409263aa1e6906d45bdcf993f6dbc0f660188f1af` |
-| Get it | `python tools/get_presentmon.py` downloads it to `bin/` and checks the hash |
+| Get it | the Frametrace window offers the download, or run `python tools/get_presentmon.py`; both check the hash |
 
 We use the console app, not the `PresentMon-2.6.0.msi` "Intel PresentMon" package (162 MB:
 service, overlay and GUI). Frametrace only needs CSV output.
@@ -33,6 +34,9 @@ Proposed answer to the open question "bundle or download on first run":
 - **The git repo never contains the exe.** Developers run `tools/get_presentmon.py`, which also
   fetches both notice files. `bin/` is gitignored.
 - Both paths check the same pinned SHA-256.
+- If Python can't verify GitHub's certificate (seen on a debloated Windows 11 where automatic
+  root-certificate updates are off), the download retries with Windows' own `curl.exe`, which
+  still verifies the certificate. The hash check applies either way.
 
 ## 3. Permissions
 
@@ -136,18 +140,24 @@ We don't use PresentMon's own `--hotkey`. It can't tell us which process is in f
 key. Frametrace registers the hotkey with `RegisterHotKey` (not a low-level keyboard hook),
 which is the least intrusive option with anti-cheat software running.
 
-## 6. Bottleneck signal (draft for analyze.py)
+## 6. Bottleneck signal (as implemented in analyze.py)
 
-Per frame: `ratio = ms_gpu_busy / ms_frame_time`.
+Each frame gets one class:
 
-- `ratio >= 0.90` → GPU-bound
-- `ratio < 0.75` → CPU-bound **or** frame-capped
-- in between → mixed
+- **GPU-limited:** `ms_gpu_busy / ms_frame_time >= 0.90`
+- **waiting:** otherwise, if the CPU waited (blocked in `Present()`) for at least 25% of the
+  frame (`ms_cpu_wait / ms_frame_time >= 0.25`). That points to VSync, a cap or a full queue.
+- **CPU-limited:** everything else
 
-The thresholds are placeholders until real probes are in. Telling CPU-bound and capped apart:
-a cap (`fps_max`, RTSS, the driver limiter, VSync) makes frame times cluster tightly around one
-interval. VSync also shows as `SyncInterval` ≥ 1 and as time blocked in Present (`MsCPUWait`).
-A CPU limit produces more varied frame times.
+The verdict is "mostly X" when one class has at least 70% of the frames, otherwise "mixed,
+leaning X". On top of that, a capture counts as **capped** when frame times are very uniform
+(P95 / P5 < 1.10) while the median GPU ratio is below 0.85. In-game limiters like `fps_max`
+sleep inside the game's frame, so they look like CPU time; the uniform frame times are what
+give them away. The report also gives FPS ceilings: 1000 / median GPU busy and
+1000 / median CPU busy.
+
+All thresholds are module constants in `analyze.py` and are first estimates until real
+captures calibrate them.
 
 Caveats that matter on the developer's own system:
 
@@ -179,19 +189,17 @@ certain titles that otherwise block ETW trace gathering", without saying which c
 apply to. Symptom: the game is in front but presents zero frames in the capture. The probe flags
 this. **Verify:** CS2 (VAC) and DayZ (BattlEye).
 
-## 8. Step 2 test plan
+## 8. Test plan
 
-Setup (once):
-1. Python 3.10 or newer from python.org (stdlib only, no `pip install` needed).
-2. Get the repo, then run `python tools/get_presentmon.py`.
-3. Open an **admin** terminal, or do the Performance Log Users setup above.
+Setup (once): Python 3.10 or newer, the repo, `python -m pip install sv-ttk`, then
+`python -m frametrace` (or `Frametrace.bat`). The window offers the PresentMon download and
+the permission setup.
 
-Run each capture for 20-30 s while playing normally:
-```
-python tools/probe_presentmon.py --label <name>
-```
+Make each capture 30 s long while playing normally (press F10 in the game), then paste the
+report back. The probe script (`python tools/probe_presentmon.py --label <name>`) still works
+for raw diagnostics.
 
-| # | Label | What it tests |
+| # | Capture | What it tests |
 |---|---|---|
 | 1 | `cs2-dx11-reflex-on` | baseline, very high FPS, VAC, Reflex |
 | 2 | `cs2-dx11-reflex-off` | Reflex effect on CPU busy/wait |
@@ -202,6 +210,6 @@ python tools/probe_presentmon.py --label <name>
 | 7 | `<game>-vulkan` | any Vulkan title you have; otherwise leave it to a contributor |
 | 8 | `cs2-dx11-hags-off` | HAGS effect on GPU busy (after a reboot with HAGS off) |
 
-Each run writes `probe-results/<label>-<time>.md`. Paste those summaries back. They answer:
-columns per API, whether auto-detect picked the right process, whether the clean stop worked,
-the NA rates, and where the GPU-busy ratio sits for each game.
+The reports answer: whether auto-detect picked the right process for each API and launcher,
+whether the clean stop works, and where the GPU-busy ratio sits for each game, which is what
+calibrates the thresholds.
