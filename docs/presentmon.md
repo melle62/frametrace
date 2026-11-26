@@ -181,6 +181,12 @@ Reflex on), compared with CS2's own VProf output from the same run:**
   PresentMon column is `MsBetweenAppStart`, which gives P1 209.4, within 1% of VProf.
   Present-to-present intervals (`MsBetweenPresents`, what CapFrameX and reviewers use) are
   jitterier, so the report shows both.
+- *Repeatability.* A second run (fixed 100 s) lined up with the first run's FPS curve at a
+  correlation of 0.996, starting 3.75 s later. Over the 100 s both covered, the two captures
+  measured 440.3 and 441.2 FPS (0.2% apart). The CPU-side 1% low was 209.2 and 209.8, against
+  VProf's 211.0 and 212.9. The 100 s capture's lower average (440.5 vs VProf 511.5) again came
+  from the window: it left out the run's fast intro and outro (the first run's extra 11.2 s at
+  the end ran at 684 FPS).
 - *Stutter.* Comparing each frame with the capture-wide median flagged 2.1% of the time as
   spikes, but those were heavier scenes at about 200 FPS. Comparing each frame with its 30
   neighbours on each side found 12 real hitches (0.1% of the time). The report now uses the
