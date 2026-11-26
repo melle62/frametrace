@@ -101,9 +101,12 @@ against a pinned SHA-256). Recording needs administrator rights or membership in
 5. Change the 1–3 settings it suggests, capture the same scene again, select both captures and
    copy the comparison back into the same chat.
 
-Captures are saved in `Documents\Frametrace\captures` and listed on the left.
-<kbd>Ctrl</kbd>+click a second capture to compare the two, or right-click a capture for its folder,
-its report or a comparison with the selected one.
+Captures are saved in `Documents\Frametrace\captures` and listed on the left, grouped by game.
+<kbd>Ctrl</kbd>+click a second capture to compare the two. Right-click a capture to give it a label
+(like "MSAA 2x", which the report and comparisons then carry), move it into a group of your own
+(a test session, the setting you're tuning), open its folder, copy its report or delete it. Click
+a group's heading to fold it; right-click it to rename the group or delete its captures. Deleted
+captures go to the Recycle Bin.
 
 | Keys | |
 |---|---|
@@ -112,6 +115,8 @@ its report or a comparison with the selected one.
 | <kbd>Ctrl</kbd>+<kbd>C</kbd> | copy the report (or the comparison) |
 | <kbd>Ctrl</kbd>+<kbd>Tab</kbd> | next tab: Summary, Report, Game, System, Compare |
 | <kbd>Ctrl</kbd>+<kbd>O</kbd> | open the capture's folder |
+| <kbd>F2</kbd> | label the selected capture |
+| <kbd>Delete</kbd> | delete the selected capture (asks first, goes to the Recycle Bin) |
 
 Command line: `python -m frametrace report capture.csv` analyzes an existing PresentMon CSV,
 and `python -m frametrace compare before after` compares two saved captures. Both take

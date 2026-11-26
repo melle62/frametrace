@@ -8,10 +8,16 @@ last_verified: 2026-11-26
 ---
 
 ## Built-in benchmark
-- The community "FPS Benchmark" workshop map gives a repeatable fly-through of about 2 minutes.
+- The community "FPS Benchmark" workshop map by FPSfrequency gives a repeatable fly-through of
+  about 2 minutes. All the maintainer's CS2 captures so far were made on it.
   CS2 prints its own summary at the end (`[VProf] -- Performance report --`).
 - Two Frametrace runs on the same map lined up at a correlation of 0.996 and measured 440.3 vs
   441.2 FPS over the same 100 s: the map is very repeatable.
+- **Start every capture at the same moment.** Two fixed 79 s captures with identical settings,
+  started by hand, measured a 1% low of 214.6 and 163.6 FPS and 2 vs 316 hitch frames: they
+  covered different parts of the run (or one was the first pass after loading the map). Use
+  Manual length and press the hotkey on the same cue at start and end, and throw away the
+  first run after loading the map.
 - The run's intro and outro are light scenes at 600–1,000 FPS. A Frametrace capture that doesn't
   cover the whole run therefore reads a lower average than VProf. Compare Frametrace with
   Frametrace, started at the same moment and with the same length.
@@ -61,9 +67,11 @@ last_verified: 2026-11-26
 
 ## Settings file
 Frametrace reads `cs2_video.txt` from `Steam\userdata\<account>\730\local\cfg\` (the newest
-one when several Steam accounts have played) and lists its `setting.*` entries. Not in that file:
-**Maximum FPS In Game** (`fps_max`), **Maximum FPS In Menus** (`fps_max_ui`) and **Boost Player
-Contrast**. The AI has to ask for those.
+one when several Steam accounts have played) and lists its `setting.*` entries. From the convar
+files in the same folder (`cs2_user_convars_0_slot0.vcfg`) and the install's
+`cs2_machine_convars.vcfg` it adds the rendering convars: names starting with `fps_max`, `r_`,
+`mat_` or `engine_low_latency`. That covers **Maximum FPS In Game** and **In Menus**; crosshair,
+binds, audio and HUD convars stay out.
 
 Checked against the Video settings page on the maintainer's PC (2026-11-26). "Seen" marks a value
 matched to the menu; the rest of each range follows the menu's order and is unverified.
@@ -87,6 +95,9 @@ matched to the menu; the rest of each range follows the menu's order and is unve
 | `videocfg_hdr_detail` | High Dynamic Range | seen -1 = Quality; 3 Performance |
 | `videocfg_fsr_detail` | FidelityFX Super Resolution | seen 0 = Disabled (Highest Quality); 1 Ultra Quality … 4 Performance |
 | `r_low_latency` | NVIDIA Reflex Low Latency | seen 0 = Disabled; 1 Enabled, 2 Enabled + Boost |
+| `fps_max` (convar) | Maximum FPS In Game | 0 = no cap; seen 0 in the menu |
+| `fps_max_ui` (convar) | Maximum FPS In Menus | seen 120 in the menu |
+| `r_player_visibility_mode` (convar) | Boost Player Contrast | 1 = Enabled (unverified key) |
 | `refreshrate_numerator` / `_denominator` | Refresh Rate | seen 0 / 0 |
 | `monitor_index`, `high_dpi`, `fullscreen_min_on_focus_loss` | display options | no effect on FPS |
 

@@ -214,6 +214,11 @@ def resolve_goal(
     return goal, target if goal.key == "target" else None
 
 
+def run_label(r: dict) -> str | None:
+    """The user's label for a run, e.g. "MSAA 2x, particles low"."""
+    return (r.get("user") or {}).get("label") or None
+
+
 def game_name(r: dict) -> str:
     g = r.get("game") or {}
     return g.get("name") or r["capture"]["app"]
@@ -433,6 +438,7 @@ def render(r: dict, goal_key: str | None = None, target_fps: int | None = None) 
         f"Frametrace report · {game_name(r)} · {_when(cap.get('started'))} · {s['duration_s']:.1f} s analyzed"
         + (f" (first {an['skipped_start_s']:.0f} s skipped)" if an.get("skipped_start_s") else ""),
         f"Goal: {goal_title(goal, target)}",
+        *([f"Run: {run_label(r)}"] if run_label(r) else []),
         "",
         "## Task for the AI",
         *task_lines(r, goal, target),
@@ -633,10 +639,11 @@ def compare(a: dict, b: dict, goal_key: str | None = None, target_fps: int | Non
 
     name = game_name(b)
     lines = [
-        (
-            f"Frametrace compare · {name} · A (before): {_when(ca.get('started'))}"
-            f" · B (after): {_when(cb.get('started'))}"
-        ),
+        f"Frametrace compare · {name}",
+        f"A (before): {_when(ca.get('started'))}"
+        + (f' "{run_label(a)}"' if run_label(a) else "")
+        + f" · B (after): {_when(cb.get('started'))}"
+        + (f' "{run_label(b)}"' if run_label(b) else ""),
         f"Goal: {goal_title(goal, target)}",
         "",
         "## Result for the goal",
@@ -658,6 +665,11 @@ def compare(a: dict, b: dict, goal_key: str | None = None, target_fps: int | Non
         )
     elif changes:
         lines += [f"- {k}: {va} -> {vb}" for k, va, vb in changes]
+    elif summary.settings_unchanged_but_moved(a, b, target):
+        lines.append(
+            "None: A and B ran with the same settings, yet the results moved beyond run-to-run"
+            " noise. Treat the difference as variation between runs, not an effect of settings."
+        )
     else:
         lines.append(
             "None in the settings file. If I changed something, it may not be saved there"
@@ -678,6 +690,17 @@ def compare(a: dict, b: dict, goal_key: str | None = None, target_fps: int | Non
             " below; same format as before (setting, current -> new, effect on the goal, visual cost)."
         ),
         "3. If the change made things worse, say whether to undo it before trying the next one.",
+        *(
+            [
+                (
+                    "4. The settings didn't change between A and B. Say what likely made the runs"
+                    " differ (start point, first run after loading, background activity) and how"
+                    " to make the next runs repeatable."
+                )
+            ]
+            if summary.settings_unchanged_but_moved(a, b, target)
+            else []
+        ),
         "",
         "| Metric | A | B | Change |",
         "|---|---|---|---|",

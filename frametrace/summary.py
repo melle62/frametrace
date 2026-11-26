@@ -56,11 +56,41 @@ def name(result: dict) -> str:
     return (result.get("game") or {}).get("name") or result["capture"]["app"]
 
 
+def label(result: dict) -> str | None:
+    """The user's own name for this run ("MSAA 2x"), if they gave one."""
+    return (result.get("user") or {}).get("label") or None
+
+
+def group(result: dict) -> str | None:
+    """The group the user put this run in, if any."""
+    return (result.get("user") or {}).get("group") or None
+
+
+def title(result: dict) -> str:
+    """What a run is called in the list and the header: its label, else the game."""
+    return label(result) or name(result)
+
+
+def rail_groups(captures: list[tuple]) -> list[tuple[str, bool, list[tuple]]]:
+    """(heading, custom, [(folder, result), ...]) for the captures list.
+
+    Runs go in the group the user gave them, else under their game. Groups are ordered
+    by their newest run (captures come in newest first), runs inside stay newest first.
+    """
+    order: dict[tuple[str, bool], list[tuple]] = {}
+    for folder, result in captures:
+        g = group(result)
+        key = (g, True) if g else (name(result), False)
+        order.setdefault(key, []).append((folder, result))
+    return [(heading, custom, rows) for (heading, custom), rows in order.items()]
+
+
 def subtitle(result: dict) -> str:
     cap, an = result["capture"], result["analysis"]
     s = an["stats"]
     parts = [
-        *([cap["app"]] if name(result) != cap["app"] else []),
+        # a labelled run names its game here; otherwise the title is the game: show the exe
+        *([name(result)] if label(result) else [cap["app"]] if name(result) != cap["app"] else []),
         when(cap.get("started")),
         f"{s['duration_s']:.1f} s analyzed",
         f"{s['frames']:,} frames",
@@ -202,7 +232,7 @@ def rail_row(result: dict) -> tuple[str, str, str, str, str]:
     if s["duration_s"] < 10:
         sub, level = "short", "warn"
     meta = f"{when(cap.get('started'))} · {s['duration_s']:.0f} s"
-    return level, name(result), meta, f"{s['avg_fps']:.1f}", sub
+    return level, title(result), meta, f"{s['avg_fps']:.1f}", sub
 
 
 def system_rows(lines: list[str]) -> list[tuple[str, str]]:
@@ -457,6 +487,12 @@ def compare_verdict(
     items += [("better", _phrase(d)) for d in side if d.status == "better"]
     items += [("worse", _phrase(d)) for d in side if d.status == "worse"]
     notes = []
+    if settings_unchanged_but_moved(a, b, target):
+        notes.append(
+            "Same in-game settings in A and B, yet the results moved: the difference comes from"
+            " the run itself (another start point, the first run after loading, background"
+            " activity), not from settings."
+        )
     if goal.key == "latency" and "PC latency, median" not in shown and decide:
         notes.append("No Reflex latency markers in both captures: judged by frame time.")
     la, lb = _limit(a), _limit(b)
@@ -475,14 +511,30 @@ def compare_verdict(
 
 
 def settings_changes(a: dict, b: dict) -> list[tuple[str, str, str]] | None:
-    """(key, A, B) for in-game settings that differ; None when either capture has none."""
-    sa = (a.get("game_settings") or {}).get("settings")
-    sb = (b.get("game_settings") or {}).get("settings")
+    """(key, A, B) for in-game settings that differ; None when either capture has none.
+
+    When the two were read by different readers (an older Frametrace read fewer files),
+    only keys both have are compared, so a newly read file doesn't look like a change.
+    """
+    ga, gb = a.get("game_settings") or {}, b.get("game_settings") or {}
+    sa, sb = ga.get("settings"), gb.get("settings")
     if not sa or not sb:
         return None
     da, db = dict(map(tuple, sa)), dict(map(tuple, sb))
     keys = [k for k, _ in sa] + [k for k, _ in sb if k not in da]
+    if ga.get("reader") != gb.get("reader"):
+        keys = [k for k in keys if k in da and k in db]
     return [(k, da.get(k, "-"), db.get(k, "-")) for k in keys if da.get(k) != db.get(k)]
+
+
+def settings_unchanged_but_moved(a: dict, b: dict, target: int | None = None) -> bool:
+    """Both captures' settings were read, none changed, and a key metric moved beyond noise."""
+    changes = settings_changes(a, b)
+    if changes is None or changes:
+        return False
+    deltas = goal_deltas(a, b, target)
+    keys = ("Average", "1% low", "0.1% low", "P99", "Time in hitches")
+    return any(deltas[k].status in ("better", "worse") for k in keys if k in deltas)
 
 
 def system_changes(a: dict, b: dict) -> list[tuple[str, str, str]]:

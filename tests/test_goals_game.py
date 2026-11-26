@@ -264,3 +264,64 @@ def test_stutter_is_a_capture_note_not_a_fix():
     assert kinds["RAM"] == "system" and kinds["Frame"] == "capture"
     a, b = r, result_for(make_rows(n=8000))
     assert "Stutter" not in report.compare(b, a).split("Fix first, flagged")[-1]
+
+
+CS2_CONVARS = """"config"
+{
+	"convars"
+	{
+		"cl_crosshairsize"		"2.000000"
+		"fps_max"		"400.000000"
+		"fps_max_ui$2"		"120.000000"
+		"r_player_visibility_mode"		"1"
+		"r_low_latency"		"2"
+		"sensitivity"		"1.250000"
+		"name"		"melvin"
+	}
+}
+"""
+
+
+def test_source2_reads_rendering_convars_next_to_the_video_config(tmp_path):
+    exe = steam_library(tmp_path)
+    cfg = tmp_path / "Steam" / "userdata" / "42" / "730" / "local" / "cfg"
+    cfg.mkdir(parents=True)
+    (cfg / "cs2_video.txt").write_text(CS2_VIDEO, encoding="utf-8")
+    (cfg / "cs2_user_convars_0_slot0.vcfg").write_text(CS2_CONVARS, encoding="utf-8")
+    found = gamesettings.read_source2(game.identify("cs2.exe", str(exe)), tmp_path / "Steam")
+    d = dict(found.settings)
+    assert d["fps_max"] == "400" and d["fps_max_ui"] == "120"  # $2 slot suffix dropped
+    assert d["r_player_visibility_mode"] == "1"
+    assert d["r_low_latency"] == "1"  # the video config's value; convars don't duplicate it
+    assert not {"cl_crosshairsize", "sensitivity", "name"} & set(d)  # not rendering, or private
+    assert found.reader == "Source 2 video config and convars"
+    assert "cs2_user_convars_0_slot0.vcfg" in found.source
+
+
+def _with_settings(r, pairs, reader="x"):
+    r["game_settings"] = {"reader": reader, "source": "y", "settings": [list(p) for p in pairs]}
+    return r
+
+
+def test_same_settings_but_results_moved_is_flagged():
+    a = _with_settings(result_for(make_rows(n=8000, ft=2.2)), [("aa", "2")])
+    b = _with_settings(result_for(make_rows(n=8000, ft=2.0, seed=3)), [("aa", "2")])
+    assert summary.settings_changes(a, b) == []
+    assert summary.settings_unchanged_but_moved(a, b)
+    _, _, notes = summary.compare_verdict(a, b)
+    assert any(n.startswith("Same in-game settings in A and B") for n in notes)
+    text = report.compare(a, b)
+    assert "same settings, yet the results moved" in text
+    assert "4. The settings didn't change between A and B." in text
+    same = _with_settings(result_for(make_rows(n=8000, ft=2.2, seed=2)), [("aa", "2")])
+    assert not summary.settings_unchanged_but_moved(a, same)  # inside noise: nothing to flag
+
+
+def test_newly_read_keys_are_not_changes():
+    a = _with_settings(result_for(make_rows()), [("aa", "2")], reader="Source 2 video config")
+    b = _with_settings(
+        result_for(make_rows()),
+        [("aa", "2"), ("fps_max", "400")],
+        reader="Source 2 video config and convars",
+    )
+    assert summary.settings_changes(a, b) == []

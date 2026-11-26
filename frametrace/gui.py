@@ -73,6 +73,7 @@ DEFAULTS = {
     "theme": "dark",
     "goal": goals.DEFAULT_GOAL,
     "target_fps": "",
+    "collapsed": [],  # capture groups folded shut in the list
 }
 LENGTHS = ["10", "20", "30", "60", "90", "100", "120", "180", "300"]
 TABS = ["Summary", "Report", "Game", "System", "Compare"]
@@ -115,6 +116,8 @@ class App:
         self.loading: set[Path] = set()
         self.setup_issue: tuple[str, str, list] | None = None  # (level, text, buttons)
         self.capture_error: str | None = None
+        self.confirm: tuple[str, list] | None = None  # (text, buttons): a question in the banner
+        self.rail_order: list[Path] = []  # captures as the list shows them, for the arrow keys
         self.record_info: dict = {}
         self.note_job: str | None = None
         self.poll_job: str | None = None
@@ -177,6 +180,8 @@ class App:
                 pass
         r.bind_all("<Up>", lambda e: self._key_move(e, -1), add="+")
         r.bind_all("<Down>", lambda e: self._key_move(e, 1), add="+")
+        r.bind_all("<F2>", lambda e: self._key_selected(e, self.rename_capture), add="+")
+        r.bind_all("<Delete>", lambda e: self._key_selected(e, self.ask_delete), add="+")
 
     @staticmethod
     def _typing(widget) -> bool:
@@ -199,10 +204,17 @@ class App:
         self.copy_shown()
         return "break"
 
+    def _key_selected(self, e, action) -> str | None:
+        """F2 / Delete on the selected capture, unless a text field has the keys."""
+        if self._typing(e.widget) or not self.selected:
+            return None
+        action(self.selected[-1])
+        return "break"
+
     def _key_move(self, e, step: int) -> str | None:
         if self._typing(e.widget) or not self.captures:
             return None
-        folders = [f for f, _ in self.captures]
+        folders = self.rail_order or [f for f, _ in self.captures]
         cur = self.selected[-1] if self.selected else None
         i = folders.index(cur) + step if cur in folders else 0
         if 0 <= i < len(folders):
@@ -563,6 +575,7 @@ class App:
         for child in inner.winfo_children():
             child.destroy()
         self.count_label.configure(text=str(len(self.captures)))
+        self.rail_order = []
         if not self.captures:
             box = frame(inner, t)
             box.pack(fill="x", padx=px(8), pady=px(8))
@@ -570,13 +583,56 @@ class App:
             label(
                 box, t, "Each capture is saved here, newest first.", font="caption", fg="text3"
             ).pack(anchor="w", pady=(px(2), 0))
-        for folder, result in self.captures:
-            try:
-                level, name, meta, fps, sub = summary.rail_row(result)
-            except (KeyError, TypeError):
+        folded = set(self.settings.get("collapsed") or [])
+        for heading, custom, rows in summary.rail_groups(self.captures):
+            shut = heading in folded
+            self._group_head(inner, heading, custom, rows, shut)
+            if shut:
                 continue
-            self._rail_row(inner, folder, level, name, meta, fps, sub)
+            for folder, result in rows:
+                try:
+                    level, name, meta, fps, sub = summary.rail_row(result)
+                except (KeyError, TypeError):
+                    continue
+                self.rail_order.append(folder)
+                self._rail_row(inner, folder, level, name, meta, fps, sub)
         self._render_foot()
+
+    def _group_head(self, parent, heading: str, custom: bool, rows: list, shut: bool) -> None:
+        """A group's heading: chevron, name and count. Click folds it, right-click for more."""
+        t = self.t
+        head = tk.Frame(parent, bg=t.c["background"], cursor="hand2")
+        head.pack(fill="x", pady=(px(10), px(4)))
+        chev = tk.Canvas(
+            head, width=px(10), height=px(10), bg=t.c["background"], highlightthickness=0, bd=0
+        )
+        chev.pack(side="left", padx=(px(10), px(8)))
+        c, w = px(5), px(3)
+        pts = (
+            (c - 1, c - w, c + w - 1, c, c - 1, c + w)
+            if shut
+            else (c - w, c - 1, c, c + w - 1, c + w, c - 1)
+        )
+        chev.create_line(*pts, fill=t.c["text3"], width=max(1, px(1.5)), capstyle="projecting")
+        name = silk(head, t, heading, fg="text2" if custom else "text3")
+        name.pack(side="left")
+        count = label(head, t, str(len(rows)), font="mono_xs", fg="text4")
+        count.pack(side="right", padx=(0, px(12)))
+        for w in (head, chev, name, count):
+            w.bind("<Button-1>", lambda _e, h=heading: self.toggle_group(h))
+            w.bind(
+                "<Button-3>", lambda e, h=heading, r=rows, cu=custom: self._group_menu(e, h, r, cu)
+            )
+
+    def toggle_group(self, heading: str) -> None:
+        folded = list(self.settings.get("collapsed") or [])
+        if heading in folded:
+            folded.remove(heading)
+        else:
+            folded.append(heading)
+        self.settings["collapsed"] = folded
+        save_settings(self.settings)
+        self.render_rail()
 
     def _rail_row(self, parent, folder: Path, level, name, meta, fps, sub) -> None:
         t = self.t
@@ -637,18 +693,174 @@ class App:
             disabledforeground=t.c["text4"], font=t.fonts["body_sm"], activeborderwidth=0,
         )  # fmt: skip
         other = [f for f in self.selected if f != folder]
+        # with two runs selected and the click on one of them, group and delete act on both
+        targets = list(self.selected) if folder in self.selected else [folder]
+        both = f" ({len(targets)})" if len(targets) > 1 else ""
         m.add_command(label="Open folder", command=lambda: _open(folder))
         m.add_command(label="Copy report", command=lambda: self._copy_report_of(folder))
+        m.add_separator()
+        m.add_command(label="Rename…", command=lambda: self.rename_capture(folder))
+        sub = self._menu(m)
+        for g in self.custom_groups():
+            sub.add_command(label=g, command=lambda g=g: self.move_to_group(targets, g))
+        if self.custom_groups():
+            sub.add_separator()
+        sub.add_command(label="New group…", command=lambda: self.ask_group(targets))
+        sub.add_command(
+            label="Back under its game",
+            command=lambda: self.move_to_group(targets, None),
+            state="normal" if any(self._group_of(f) for f in targets) else "disabled",
+        )
+        m.add_cascade(label=f"Move to group{both}", menu=sub)
         m.add_separator()
         m.add_command(
             label="Compare with selected",
             command=lambda: self._compare_with(folder),
             state="normal" if other else "disabled",
         )
+        m.add_separator()
+        m.add_command(label=f"Delete{both}…", command=lambda: self.ask_delete(targets))
         try:
             m.tk_popup(event.x_root, event.y_root)
         finally:
             m.grab_release()
+
+    def _menu(self, parent=None) -> tk.Menu:
+        t = self.t
+        return tk.Menu(
+            parent or self.root, tearoff=0, bg=t.c["surface1"], fg=t.c["text1"], bd=1,
+            relief="flat", activebackground=t.c["surface2"], activeforeground=t.c["text1"],
+            disabledforeground=t.c["text4"], font=t.fonts["body_sm"], activeborderwidth=0,
+        )  # fmt: skip
+
+    def _group_menu(self, event, heading: str, rows: list, custom: bool) -> None:
+        m = self._menu()
+        folders = [f for f, _ in rows]
+        m.add_command(label="Rename group…", command=lambda: self.ask_group(folders, heading))
+        if custom:
+            m.add_command(
+                label="Ungroup (back under each game)",
+                command=lambda: self.move_to_group(folders, None),
+            )
+        m.add_separator()
+        m.add_command(
+            label=f"Delete all {len(folders)} captures…",
+            command=lambda: self.ask_delete(folders, heading),
+        )
+        try:
+            m.tk_popup(event.x_root, event.y_root)
+        finally:
+            m.grab_release()
+
+    # --- organizing captures -------------------------------------------------------------------
+
+    def custom_groups(self) -> list[str]:
+        """Groups the user made, newest first."""
+        seen: list[str] = []
+        for _, r in self.captures:
+            g = summary.group(r)
+            if g and g not in seen:
+                seen.append(g)
+        return seen
+
+    def _group_of(self, folder: Path) -> str | None:
+        try:
+            return summary.group(self.result_for(folder))
+        except StopIteration:
+            return None
+
+    def _save_user(self, folders: list[Path], **fields) -> None:
+        """Write label/group into each capture and refresh the list and the views."""
+        failed = 0
+        for folder in folders:
+            try:
+                updated = capture.save_user(folder, **fields)
+            except (OSError, ValueError):
+                failed += 1
+                continue
+            self.captures = [(f, updated if f == folder else r) for f, r in self.captures]
+        self.render_rail()
+        self.render_main()
+        if failed:
+            self.show_note(f"Couldn't save {failed} of {len(folders)}.", "")
+
+    def rename_capture(self, folder: Path) -> None:
+        try:
+            result = self.result_for(folder)
+        except StopIteration:
+            return
+        text = TextDialog.ask(
+            self,
+            "Rename capture",
+            "A label for this run, like the settings you changed. It shows in the list, the"
+            " report and comparisons. Leave it empty to show the game's name.",
+            summary.label(result) or "",
+        )
+        if text is not None:
+            self._save_user([folder], label=text)
+
+    def ask_group(self, folders: list[Path], current: str | None = None) -> None:
+        text = TextDialog.ask(
+            self,
+            "Rename group" if current else "New group",
+            f"A name for the group of {len(folders)} capture{'s' if len(folders) > 1 else ''},"
+            " like a test session or the setting you're tuning.",
+            current or "",
+            choices=[g for g in self.custom_groups() if g != current],
+        )
+        if text:
+            if current:  # keep a renamed group folded or open as it was
+                folded = [text if g == current else g for g in self.settings.get("collapsed", [])]
+                self.settings["collapsed"] = folded
+                save_settings(self.settings)
+            self.move_to_group(folders, text)
+
+    def move_to_group(self, folders: list[Path], group: str | None) -> None:
+        self._save_user(folders, group=group)
+
+    def ask_delete(self, folders: Path | list[Path], heading: str | None = None) -> None:
+        """Ask in the banner before deleting; the captures go to the Recycle Bin."""
+        folders = [folders] if isinstance(folders, Path) else list(folders)
+        if not folders:
+            return
+        if heading:
+            what = f"all {len(folders)} captures in {heading}"
+        elif len(folders) == 1:
+            r = self.result_for(folders[0])
+            what = f"{summary.title(r)} from {summary.when(r['capture'].get('started'))}"
+        else:
+            what = f"these {len(folders)} captures"
+        many = len(folders) > 1
+        if os.name == "nt":
+            where = f"The folder{'s go' if many else ' goes'} to the Recycle Bin."
+        else:
+            where = f"The folder{'s are' if many else ' is'} deleted for good."
+        self.confirm = (
+            f"Delete {what}? {where}",
+            [("Delete", lambda: self.delete_captures(folders)), ("Cancel", self.cancel_confirm)],
+        )
+        self.render_setup()
+
+    def cancel_confirm(self) -> None:
+        self.confirm = None
+        self.render_setup()
+
+    def delete_captures(self, folders: list[Path]) -> None:
+        self.confirm = None
+        root = self.captures_root or capture.DEFAULT_ROOT
+        done, failed = 0, 0
+        for folder in folders:
+            try:
+                capture.delete_capture(folder, root)
+                done += 1
+            except (OSError, capture.CaptureError):
+                failed += 1
+            self.traces.pop(folder, None)
+        self.selected = [f for f in self.selected if f not in folders]
+        self.render_setup()
+        self.refresh_history()
+        note = f"Deleted {done} capture{'s' if done != 1 else ''}."
+        self.show_note(note + (f" {failed} couldn't be deleted." if failed else ""), "")
 
     def _compare_with(self, folder: Path) -> None:
         other = [f for f in self.selected if f != folder]
@@ -708,10 +920,15 @@ class App:
         t = self.t
         for child in self.banner.winfo_children():
             child.destroy()
-        issue = self.setup_issue or (
-            ("error", self.capture_error, [("Dismiss", self.dismiss_error)])
-            if self.capture_error
-            else None
+        issue = (
+            ("warn", self.confirm[0], self.confirm[1])
+            if self.confirm
+            else self.setup_issue
+            or (
+                ("error", self.capture_error, [("Dismiss", self.dismiss_error)])
+                if self.capture_error
+                else None
+            )
         )
         if not issue:
             self.banner.pack_forget()
@@ -756,7 +973,7 @@ class App:
         elif result:
             self._header(
                 summary.initials(summary.name(result)),
-                summary.name(result),
+                summary.title(result),
                 summary.subtitle(result),
                 summary.tags(result),
             )
@@ -1032,7 +1249,7 @@ class App:
             cap, s = res["capture"], res["analysis"]["stats"]
             line = frame(chip, t, "surface1")
             line.pack(fill="x", padx=px(16))
-            label(line, t, summary.name(res), bg="surface1").pack(side="left")
+            label(line, t, summary.title(res), bg="surface1").pack(side="left")
             label(line, t, f"{s['avg_fps']:.1f}", font="mono_sm", bg="surface1").pack(side="right")
             meta = f"{summary.when(cap.get('started'))} · {s['duration_s']:.0f} s · {s['frames']:,} frames"
             row2 = frame(chip, t, "surface1")
@@ -1901,6 +2118,65 @@ class App:
             except (OSError, subprocess.SubprocessError):
                 pass
         self.root.destroy()
+
+
+class TextDialog:
+    """A small modal question with one text field, in the window's theme."""
+
+    @staticmethod
+    def ask(
+        app: App, title: str, prompt: str, initial: str = "", choices: list[str] | None = None
+    ) -> str | None:
+        """The text entered (may be empty), or None when cancelled."""
+        t, root = app.t, app.root
+        win = tk.Toplevel(root, bg=t.c["background"])
+        win.title(title)
+        win.transient(root)
+        win.resizable(False, False)
+        win.bind("<Map>", lambda e: e.widget is win and theme.set_title_bar(win, t.dark, t.c))
+        body = frame(win, t)
+        body.pack(fill="both", padx=px(20), pady=(px(18), px(16)))
+        label(body, t, title, font="subheading", anchor="w").pack(fill="x")
+        label(body, t, prompt, fg="text2", wraplength=px(380), justify="left", anchor="w").pack(
+            fill="x", pady=(px(6), px(14))
+        )
+        var = tk.StringVar(value=initial)
+        if choices:
+            field = ttk.Combobox(body, textvariable=var, values=choices, font=t.fonts["body_sm"])
+        else:
+            field = ttk.Entry(body, textvariable=var, font=t.fonts["body_sm"])
+        field.pack(fill="x")
+        out: dict[str, str | None] = {"value": None}
+
+        def done(value: str | None) -> None:
+            out["value"] = value
+            win.grab_release()
+            win.destroy()
+
+        row = frame(body, t)
+        row.pack(fill="x", pady=(px(16), 0))
+        FlatButton(row, t, "Save", lambda: done(var.get().strip()), "primary", small=True).pack(
+            side="right"
+        )
+        FlatButton(row, t, "Cancel", lambda: done(None), "ghost", small=True).pack(
+            side="right", padx=(0, px(8))
+        )
+        win.bind("<Return>", lambda _e: done(var.get().strip()))
+        win.bind("<Escape>", lambda _e: done(None))
+        win.protocol("WM_DELETE_WINDOW", lambda: done(None))
+        win.update_idletasks()
+        x = root.winfo_rootx() + (root.winfo_width() - win.winfo_reqwidth()) // 2
+        y = root.winfo_rooty() + (root.winfo_height() - win.winfo_reqheight()) // 3
+        win.geometry(f"+{max(0, x)}+{max(0, y)}")
+        field.focus_set()
+        field.select_range(0, "end")
+        field.icursor("end")
+        try:
+            win.grab_set()
+        except tk.TclError:  # another grab (a menu) is still active
+            pass
+        root.wait_window(win)
+        return out["value"]
 
 
 def _open(path: Path) -> None:

@@ -112,6 +112,53 @@ def source2_candidates(game: GameInfo, steam: Path | None) -> list[Path]:
     return out
 
 
+# Console variables that change rendering or the frame rate. Source engines name them by
+# subsystem, so a prefix is enough: no per-game list. Everything else in the convar files
+# (crosshair, binds, audio, HUD) stays out of the report.
+SOURCE2_CONVAR_PREFIXES = ("fps_max", "r_", "mat_", "engine_low_latency")
+MAX_CONVARS = 30
+
+
+def _number(value: str) -> str:
+    """'400.000000' -> '400', '0.500000' -> '0.5'; anything else unchanged."""
+    if re.fullmatch(r"-?\d+\.\d+", value):
+        return value.rstrip("0").rstrip(".")
+    return value
+
+
+def source2_convar_files(video: Path, game: GameInfo) -> list[Path]:
+    """Convar files next to the video config (per account), then the install's machine ones.
+
+    Oldest first, so a newer file's value wins when both hold a key.
+    """
+    found: list[Path] = []
+    try:
+        found += list(video.parent.glob("*convars*.vcfg"))
+        if game.install_dir:
+            found += list(Path(game.install_dir).glob("game/*/cfg/*machine_convars*.vcfg"))
+    except OSError:
+        return []
+    files = [(m, p) for p in found if (m := _mtime(p)) is not None]
+    return [p for _, p in sorted(files)]
+
+
+def read_source2_convars(files: list[Path], skip: set[str]) -> list[tuple[str, str]]:
+    """Rendering convars from vcfg files ("config" { "convars" { ... } })."""
+    merged: dict[str, str] = {}
+    for f in files:
+        try:
+            kv = parse_keyvalues(f.read_text(encoding="utf-8", errors="replace"))
+        except OSError:
+            continue
+        for block in kv.values():
+            convars = block.get("convars") if isinstance(block, dict) else None
+            for k, v in (convars or {}).items():
+                key = re.sub(r"\$\d+$", "", k)  # fps_max_ui$2: a per-slot copy
+                if isinstance(v, str) and key.startswith(SOURCE2_CONVAR_PREFIXES):
+                    merged[key] = _number(v.strip())
+    return [(k, v) for k, v in sorted(merged.items()) if k not in skip and keep(k, v)][:MAX_CONVARS]
+
+
 def read_source2(game: GameInfo, steam: Path | None = None) -> GameSettings | None:
     if game.engine != "Source 2":
         return None
@@ -130,7 +177,16 @@ def read_source2(game: GameInfo, steam: Path | None = None) -> GameSettings | No
     ]
     if not settings:
         return None
-    return GameSettings("Source 2 video config", _short(path), settings, _mtime(path))
+    files = source2_convar_files(path, game)
+    convars = read_source2_convars(files, {k for k, _ in settings})
+    source = _short(path)
+    if convars:
+        source += " + " + ", ".join(sorted({f.name for f in files}))
+        reader = "Source 2 video config and convars"
+    else:
+        reader = "Source 2 video config"
+    modified = max(filter(None, [_mtime(path), *(_mtime(f) for f in files)]), default=None)
+    return GameSettings(reader, source, settings + convars, modified)
 
 
 # --- Unreal Engine: GameUserSettings.ini ------------------------------------------------------
