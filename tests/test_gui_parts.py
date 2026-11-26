@@ -169,7 +169,9 @@ def test_scope_scales():
     instruments = pytest.importorskip("frametrace.instruments")
     assert instruments.nice_div(2.4) == 1
     assert instruments.nice_div(4.7) == 1.5
-    assert instruments.nice_div(17.0) == 10
+    assert instruments.nice_div(8.5) == 2.5  # the real CS2 run: a 10 ms screen, not 20
+    assert instruments.nice_div(9.5) == 3
+    assert instruments.nice_div(17.0) == 5
     assert instruments.nice_time_step(100) == 20
     assert instruments.nice_time_step(30) == 5
 
@@ -284,6 +286,12 @@ def test_numbers_in_prose_are_found_with_their_units():
     assert [p for p, n in summary.number_runs(names) if n] == ["26300"]
     assert "".join(p for p, _ in summary.number_runs(text)) == text
     assert summary.number_runs("B is `4.2%` faster") == summary.runs("B is `4.2%` faster")
+
+
+def test_title_bar_colours():
+    assert theme._colorref("#141413") == 0x131414
+    assert theme._colorref("#F5C518") == 0x18C5F5
+    theme.set_title_bar(None, True, theme.PALETTES["dark"])  # no-op off Windows
 
 
 def test_display_scale_and_silk_tracking():

@@ -544,9 +544,13 @@ class DeltaBar(tk.Canvas):
 
 
 def nice_div(peak_ms: float) -> float:
-    """ms per division so that 4 divisions show the trace with some headroom."""
-    for step in (0.25, 0.5, 1, 1.5, 2, 2.5, 5, 10, 15, 20, 25, 50, 100, 250):
-        if step * 4 >= peak_ms * 1.25:
+    """ms per division so that 4 divisions show the trace with a little headroom.
+
+    Steps between 2.5 and 5 matter: a CS2 run peaking near 9 ms would otherwise get a
+    20 ms screen and sit in its bottom quarter.
+    """
+    for step in (0.25, 0.5, 1, 1.5, 2, 2.5, 3, 4, 5, 7.5, 10, 15, 20, 25, 50, 100, 250):
+        if step * 4 >= peak_ms * 1.15:
             return step
     return 250.0
 

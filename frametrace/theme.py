@@ -289,13 +289,34 @@ def _chevron_element(root: tk.Misc, style, name: str, c: dict) -> str:
     return element
 
 
-def set_title_bar(root: tk.Tk, dark: bool) -> None:
-    """Dark or light Windows title bar (DWMWA_USE_IMMERSIVE_DARK_MODE)."""
+def _colorref(hex_color: str) -> int:
+    """#RRGGBB as a Windows COLORREF (0x00BBGGRR)."""
+    r, g, b = (int(hex_color[i : i + 2], 16) for i in (1, 3, 5))
+    return r | (g << 8) | (b << 16)
+
+
+def set_title_bar(root: tk.Tk, dark: bool, c: dict | None = None) -> None:
+    """Title bar in the housing's colours: dark mode, plus caption, text and border colour.
+
+    Windows 11 takes the exact colours (DWMWA_CAPTION_COLOR and friends); Windows 10 only
+    the dark mode switch. DWM keeps drawing the old frame until the window is redrawn, so
+    the frame is refreshed at once instead of at the next activation.
+    """
     if sys.platform != "win32":
         return
     try:
-        hwnd = ctypes.windll.user32.GetParent(root.winfo_id())
+        user32, dwm = ctypes.windll.user32, ctypes.windll.dwmapi
+        hwnd = user32.GetParent(root.winfo_id())
+        if not hwnd:  # not mapped yet: the <Map> binding calls again
+            return
         value = ctypes.c_int(1 if dark else 0)
-        ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(value), 4)
-    except (AttributeError, OSError):
+        if dwm.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(value), 4) != 0:
+            dwm.DwmSetWindowAttribute(hwnd, 19, ctypes.byref(value), 4)  # Windows 10 < 20H1
+        if c:
+            for attr, key in ((35, "background"), (36, "text1"), (34, "border")):
+                ref = ctypes.c_uint(_colorref(c[key]))
+                dwm.DwmSetWindowAttribute(hwnd, attr, ctypes.byref(ref), 4)
+        # SWP_NOSIZE | SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED
+        user32.SetWindowPos(hwnd, None, 0, 0, 0, 0, 0x0037)
+    except (AttributeError, OSError, ValueError):
         pass
