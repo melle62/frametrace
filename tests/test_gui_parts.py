@@ -7,9 +7,9 @@ import json
 from pathlib import Path
 
 import pytest
+from test_analysis_report import fake_system, make_rows, result_for
 
 from frametrace import report, summary, theme, trace
-from tests.test_analysis_report import fake_system, make_rows, result_for
 
 
 def test_trace_buckets_and_hitches():
