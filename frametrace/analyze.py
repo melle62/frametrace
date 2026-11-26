@@ -113,6 +113,8 @@ class Display:
     displayed_fps: float | None
     runtime: str | None
     input_to_photon_ms: float | None
+    pc_latency_ms: float | None = None  # median, from NVIDIA PC Latency markers
+    pc_latency_p95_ms: float | None = None
 
 
 @dataclass
@@ -348,6 +350,7 @@ def display_info(rows: list[dict]) -> Display:
         for r in rows
         if (r.get("ms_all_input_to_photon") or r.get("ms_click_to_photon"))
     ]
+    pcl = [r["ms_pc_latency"] for r in rows if r.get("ms_pc_latency")]
     runtimes = Counter(r.get("runtime") for r in rows if r.get("runtime"))
     return Display(
         present_mode=mode,
@@ -359,6 +362,8 @@ def display_info(rows: list[dict]) -> Display:
         displayed_fps=displayed_fps,
         runtime=runtimes.most_common(1)[0][0] if runtimes else None,
         input_to_photon_ms=statistics.median(latency) if len(latency) >= 10 else None,
+        pc_latency_ms=statistics.median(pcl) if len(pcl) >= 10 else None,
+        pc_latency_p95_ms=quantile(sorted(pcl), 0.95) if len(pcl) >= 10 else None,
     )
 
 

@@ -212,6 +212,11 @@ def render(r: dict) -> str:
             f" | displayed {_f(d.get('displayed_fps'), 1, ' FPS')}"
         ),
     ]
+    if d.get("pc_latency_ms"):
+        lines.append(
+            f"PC latency (NVIDIA Reflex markers, input to frame sent to display): median "
+            f"{d['pc_latency_ms']:.1f} ms | P95 {_f(d.get('pc_latency_p95_ms'), 1, ' ms')}"
+        )
     if d.get("input_to_photon_ms"):
         lines.append(
             f"Input to photon (median, software-measured): {d['input_to_photon_ms']:.1f} ms"
@@ -290,6 +295,7 @@ COMPARE_ROWS = [
     ("CPU-limited frames (%)", ("bottleneck", "cpu_pct"), 0, None),
     ("Median GPU busy (ms)", ("bottleneck", "median_gpu_busy_ms"), 2, False),
     ("Presenting-thread CPU busy (ms)", ("bottleneck", "median_cpu_busy_ms"), 2, False),
+    ("PC latency, median (ms)", ("display", "pc_latency_ms"), 1, False),
 ]
 
 SYSTEM_FIELDS = [

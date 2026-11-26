@@ -134,6 +134,9 @@ def capture_command(
         session_name,
         "--stop_existing_session",
         "--no_console_stats",
+        # Read NVIDIA's PC Latency Stats markers (sent by games with Reflex / Streamline).
+        # Adds MsPCLatency; values stay NA for games that don't send the markers.
+        "--track_pc_latency",
     ]
     if process_id is not None:
         cmd += ["--process_id", str(process_id)]

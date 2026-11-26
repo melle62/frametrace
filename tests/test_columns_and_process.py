@@ -170,6 +170,7 @@ def test_presentmon_commands(tmp_path):
     assert cmd[0] == str(exe)
     assert "--stop_existing_session" in cmd and "--terminate_after_timed" in cmd
     assert "--process_id" not in cmd  # all processes by default
+    assert "--track_pc_latency" in cmd  # Reflex latency markers
     assert cmd[cmd.index("--session_name") + 1] == presentmon.SESSION_NAME
     assert presentmon.terminate_command(exe)[-1] == "--terminate_existing_session"
 

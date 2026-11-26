@@ -438,3 +438,15 @@ def test_gpu_bound_steady_scene_is_not_a_cap():
     rows = make_rows(n=15000, ft=2.0, jitter=0.02, gpu_frac=(0.95, 0.99))
     b = analyze.analyze(rows, "g", 1).bottleneck
     assert b.cap_fps is None and "GPU-limited" in b.verdict
+
+
+def test_pc_latency_from_reflex_markers():
+    rows = make_rows(n=2000)
+    for i, r in enumerate(rows):
+        r["ms_pc_latency"] = 8.0 + (i % 10) * 0.2 if i % 2 else None  # markers on some frames
+    a = analyze.analyze(rows, "g", 1)
+    assert a.display.pc_latency_ms == pytest.approx(8.9, abs=0.2)
+    text = report.render(report.build_result(a, sysinfo.SystemInfo(), {}))
+    assert "PC latency (NVIDIA Reflex markers" in text
+    before = report.build_result(a, sysinfo.SystemInfo(), {})
+    assert "PC latency, median" in report.compare(before, before)
