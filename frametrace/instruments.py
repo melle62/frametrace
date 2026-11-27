@@ -957,10 +957,14 @@ class ScrollFrame(tk.Frame):
         self.canvas.yview_moveto(0)
 
 
-def placeholder(entry: tk.Widget, t: Theme, variable: tk.StringVar, text: str, bg="background"):
-    """Quiet hint text inside an empty entry; it hides while the entry has focus or a value."""
+def placeholder(
+    entry: tk.Widget, t: Theme, variable: tk.StringVar, text: str, bg="background",
+    font="mono_sm",
+):  # fmt: skip
+    """Quiet hint text inside an empty entry; it hides while the entry has focus or a value.
+    Its font matches the field's: mono for names and numbers, Sans for the user's words."""
     hint = tk.Label(
-        entry, text=text, font=t.fonts["mono_sm"], fg=t.c["text4"], bg=t.c[bg], bd=0,
+        entry, text=text, font=t.fonts[font], fg=t.c["text4"], bg=t.c[bg], bd=0,
         padx=0, pady=0, cursor="xterm",
     )  # fmt: skip
 
