@@ -17,7 +17,7 @@ metadata:
 
 Everything marked measured comes from Frametrace captures and CS2's own VProf counter on one PC
 (Ryzen 7 7800X3D, RTX 4070 Ti Super), on FPSfrequency's FPS Benchmark workshop map, or from
-community one-change pairs counted by `tools/aggregate.py` (tagged measured (community)). Claims
+community one-change pairs counted by `tools/aggregate.py` (tagged community, with the number of people). Claims
 from guides are marked "guide". Anything else is listed under "Not measured yet".
 
 <!-- frametrace:shared-rules (source: skills/frametrace/SKILL.md; copy with tools/sync_skills.py) -->
@@ -329,13 +329,9 @@ pairs, Dust Benchmark, 1 person).
   Disabled and Particle Detail Low come before CMAA2 or None; say CMAA2 or None costs
   visibility behind grates (guide A). MSAA one step, Ambient Occlusion and Particle Detail
   together measured −12% GPU time; each one alone is unmeasured. Then High Dynamic Range
-  Quality → Performance: measured (community, aggregate.py; 1 person; Dust Benchmark;
-  RTX 4070 Ti SUPER; display 2560×1440, game 1920 × 1440; 89 s; "Claude OFF"
-  `20261127-214028-cs2` → `20261127-214630-cs2`): +3.0% avg, −3.9% GPU busy, −4.4% PC
-  latency (1% low +0.9%). Then Model / Texture Detail, Shader Detail. Then Global
-  Shadow Quality one step (same source; Medium → Low +3.2% avg, −3.2% GPU busy, −3.4%
-  PC latency, `20261127-214630-cs2` → `20261127-215757-cs2`; Low → Medium −3.3% avg,
-  +3.3% GPU busy, +3.1% PC latency, `20261127-215757-cs2` → `20261127-220240-cs2`);
+  Quality → Performance (community, 1 person: +3.0% avg, −3.9% GPU busy; see Measured
+  costs). Then Model / Texture Detail, Shader Detail. Then Global Shadow Quality one
+  step (community, 1 person: Medium → Low +3.2% avg, −3.2% GPU busy; see Measured costs);
   visibility at Low, see above. Then resolution or FSR. Guide percentages (and these
   settings at 1280 × 960) are in Guide costs. The MSAA rows there are from None,
   not one step (one step is smaller: guide A about +1.8% and +6.8%, guide B about +2.5%
@@ -361,17 +357,13 @@ pairs, Dust Benchmark, 1 person).
   are the local server tick, not stutter (see below). Settings changes for stutter are
   unmeasured beyond the combined change above. Trilinear: see Texture Filtering above.
 - **Hit a target FPS:** the target defaults to the monitor's refresh rate. When it's met with
-  room, raise visibility-relevant settings first (Global Shadow Quality, MSAA; keep Dynamic
-  Shadows All and Boost Player Contrast on — Low → Medium is measured (community,
-  aggregate.py; 1 person; Dust Benchmark; RTX 4070 Ti SUPER; display 2560×1440, game
-  1920 × 1440; 89 s; `20261127-215757-cs2` → `20261127-220240-cs2`) at −3.3% avg, +3.3%
-  GPU busy, +3.1% PC latency; visibility at Low, see above), then cheap looks
-  (Anisotropic 16X, Ambient Occlusion, Shader Detail High: each 0.8–5.4% avg in guides
-  A / B at 1280 × 960, more when GPU-limited; High Dynamic Range Quality vs Performance
-  is measured (community, same scene and system; Quality → Performance
-  `20261127-214028-cs2` "Claude OFF" → `20261127-214630-cs2`: +3.0% avg, −3.9% GPU busy,
-  −4.4% PC latency — no Performance → Quality pair was counted)), then Particle
-  Detail. When it isn't, use the average-FPS order above.
+  room, raise visibility-relevant settings first: Global Shadow Quality, then MSAA. Keep
+  Dynamic Shadows All and Boost Player Contrast on. Shadow Low → Medium costs −3.3% avg
+  and +3.3% GPU busy (community, 1 person; see Measured costs). Then cheap looks:
+  Anisotropic 16X, Ambient Occlusion, Shader Detail High (each 0.8–5.4% avg in guides
+  A / B at 1280 × 960, more when GPU-limited). High Dynamic Range Performance → Quality
+  is not measured; Quality → Performance gave +3.0% avg (community, 1 person). Then
+  Particle Detail. When it isn't met, use the average-FPS order above.
 
 ## Benchmark scene
 - FPSfrequency's FPS Benchmark workshop map: a fly-through of about 2 minutes. CS2 prints its own
