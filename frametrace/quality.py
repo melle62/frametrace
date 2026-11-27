@@ -78,7 +78,11 @@ def capture_checks(r: dict) -> list[Check]:
             "killed" not in str(cap.get("stop_method") or "") and (s.get("frames") or 0) >= 1000,
             weight["complete capture"],
         ),
-        Check("labelled", bool(user.get("label") or user.get("group")), weight["labelled"]),
+        Check(
+            "labelled",
+            bool(user.get("label") or user.get("group") or user.get("benchmark")),
+            weight["labelled"],
+        ),
         Check("system read", bool(system.get("cpu") and system.get("gpus")), weight["system read"]),
     ]
 
@@ -143,7 +147,14 @@ class Pair:
     def comparable(self) -> bool:
         return all(
             self.passed(n)
-            for n in ("same game", "same system", "same display", "same length", "settings read")
+            for n in (
+                "same game",
+                "same benchmark",
+                "same system",
+                "same display",
+                "same length",
+                "settings read",
+            )
         ) and self.passed("same scene")
 
     @property
@@ -193,6 +204,9 @@ def judge_pair(a: dict, b: dict) -> Pair:
     pair = Pair(changes=changes, scene_r=r)
     pair.checks = [
         Check("same game", same_game),
+        # the user's tag for the scene: runs of another benchmark are another scene, even when
+        # their per-second curves happen to correlate (both untagged counts as the same)
+        Check("same benchmark", summary.same_benchmark(a, b)),
         Check("same system", system_key(a) == system_key(b)),
         Check("same display", same_display),
         Check("same length", same_len, detail=f"{dur_a:.0f} s / {dur_b:.0f} s"),

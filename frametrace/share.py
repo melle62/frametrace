@@ -97,8 +97,17 @@ def capture_id(folder: Path) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "_", folder.name).strip("_")[:80] or "capture"
 
 
-def comparison_id(fa: Path, fb: Path) -> str:
-    return f"{capture_id(fa)}~{capture_id(fb)}"
+def side_id(folder: Path, bundle: str | None = None) -> str:
+    """One side of a comparison: the run's capture ID, or "bundle.<id>" for a bundle."""
+    if bundle:
+        return "bundle." + (re.sub(r"[^A-Za-z0-9._-]+", "_", bundle).strip("_")[:80] or "x")
+    return capture_id(folder)
+
+
+def comparison_id(
+    fa: Path, fb: Path, a_bundle: str | None = None, b_bundle: str | None = None
+) -> str:
+    return f"{side_id(fa, a_bundle)}~{side_id(fb, b_bundle)}"
 
 
 def utc(iso: str | None) -> str | None:
@@ -177,11 +186,15 @@ def comparison_bundle(
     goal: str | None = None,
     target: int | None = None,
     copied: bool = False,
+    a_runs: list[str] | None = None,
+    b_runs: list[str] | None = None,
 ) -> dict:
     """What the comparison showed: the goal's verdict, every delta and the settings changed.
 
     The two captures are shared on their own, so the server and the aggregate tool can
     always recompute this; it records which pairs people compared and what they concluded.
+    A side that is a bundle is its runs combined, as the Compare view showed it: a and b are
+    then its newest run that counts, and a_runs / b_runs every run that counts, oldest first.
     """
     g, tgt = report.resolve_goal(b, goal, target)
     status, _ = summary.goal_status(a, b, g, tgt)
@@ -207,6 +220,9 @@ def comparison_bundle(
             "deltas": deltas,
             "advice": (b.get("user") or {}).get("advice"),
             "copied": copied,
+            "a_runs": a_runs if a_runs and len(a_runs) > 1 else None,
+            "b_runs": b_runs if b_runs and len(b_runs) > 1 else None,
+            "benchmark": {"a": summary.benchmark(a), "b": summary.benchmark(b)},
         }
     )
 
@@ -346,12 +362,35 @@ class Sharer:
                 self._save()
             return self.state["install"]
 
-    def note_pair(self, fa: Path, fb: Path, goal: str, target: int | None, copied=False) -> None:
-        """Remember a comparison the user looked at (or copied); the next sync sends it."""
-        key = comparison_id(fa, fb)
+    def note_pair(
+        self,
+        fa: Path,
+        fb: Path,
+        goal: str,
+        target: int | None,
+        copied=False,
+        a_runs: list[Path] | None = None,
+        b_runs: list[Path] | None = None,
+        a_bundle: str | None = None,
+        b_bundle: str | None = None,
+    ) -> None:
+        """Remember a comparison the user looked at (or copied); the next sync sends it.
+
+        fa / fb: the run standing for each side; a_runs / b_runs: a bundle's runs that count
+        (oldest first) and its id, so the shared comparison is the one the Compare view
+        showed."""
+        key = comparison_id(
+            fa,
+            fb,
+            a_bundle if a_runs and len(a_runs) > 1 else None,
+            b_bundle if b_runs and len(b_runs) > 1 else None,
+        )
         with self.lock:
             pair = self.state["pairs"].setdefault(key, {})
             new = {"a": str(fa), "b": str(fb), "goal": goal, "target": target}
+            for side, runs in (("a_runs", a_runs), ("b_runs", b_runs)):
+                if runs and len(runs) > 1:
+                    new[side] = [str(f) for f in runs]
             new["copied"] = bool(copied or pair.get("copied"))
             if any(pair.get(k) != v for k, v in new.items()):
                 pair.update(new)
@@ -427,9 +466,19 @@ class Sharer:
         out.sent += 1
 
     def _sync_pair(self, key: str, pair: dict, results: dict[str, dict], out: Outcome) -> None:
-        a, b = results.get(pair.get("a", "")), results.get(pair.get("b", ""))
-        if a is None or b is None:  # a capture was deleted locally: nothing to recompute
-            return
+        sides = []
+        for side in ("a", "b"):
+            folders = pair.get(f"{side}_runs") or [pair.get(side, "")]
+            runs = [(Path(f), results.get(f)) for f in folders]
+            if any(r is None for _, r in runs):  # a capture was deleted locally
+                return
+            if len(runs) > 1:
+                from frametrace import feed  # feed imports quality; keep share light at import
+
+                sides.append((feed.combine(runs), [capture_id(f) for f, _ in runs]))
+            else:
+                sides.append((runs[0][1], None))
+        (a, a_ids), (b, b_ids) = sides
         data = comparison_bundle(
             a,
             b,
@@ -438,6 +487,8 @@ class Sharer:
             pair.get("goal"),
             pair.get("target"),
             pair.get("copied", False),
+            a_ids,
+            b_ids,
         )
         sha = digest(data)
         if pair.get("sha") == sha:

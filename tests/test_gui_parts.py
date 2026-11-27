@@ -530,3 +530,50 @@ def test_window_selects_many_rows(tk_root, tmp_path, monkeypatch):
     app.cancel_confirm()
     assert app._key_escape(Key()) == "break" and app.selected == [dayz]
     app.on_close()
+
+
+def test_window_shares_a_compared_bundle_as_its_runs(tk_root, tmp_path, monkeypatch):
+    """Compare a bundle with a run: the noted pair carries the bundle's runs and id."""
+    from frametrace import capture, feed, gui, hotkey, presentmon, share, sysinfo
+
+    class Listener:
+        def __init__(self, key, cb):
+            self.hotkey = key
+
+        def start_and_wait(self):
+            return None
+
+        def is_alive(self):
+            return True
+
+        def stop(self):
+            pass
+
+    def not_found():
+        raise presentmon.PresentMonNotFound("not here")
+
+    monkeypatch.setattr(gui, "SETTINGS_PATH", tmp_path / "settings.json")
+    (tmp_path / "settings.json").write_text(
+        json.dumps({"share": True, "share_version": share.CONSENT_VERSION})
+    )
+    monkeypatch.setattr(hotkey, "HotkeyListener", Listener)
+    monkeypatch.setattr(sysinfo, "collect", fake_system)
+    monkeypatch.setattr(presentmon, "find_presentmon", not_found)
+    root = tmp_path / "captures"
+    f0, f1, f2 = _saved_captures(root, apps=("cs2.exe",) * 3)
+    for f in (f0, f1):
+        capture.save_user(f, bundle=f1.name)
+
+    app = gui.App(tk_root, captures_root=root)
+    app.sharer = share.Sharer(tmp_path / "shared.json", "https://inbox/fn", lambda *a: (500, b""))
+    monkeypatch.setattr(app, "kick_share", lambda: None)
+    tk_root.update()
+    app.selected = [feed.bundle_key(f0, f1.name), f2]
+    (fa, _), (fb, _) = app.compare_pair()
+    assert (fa, fb) == (f1, f2)
+    app.note_comparison(fa, fb)
+    pairs = app.sharer.state["pairs"]
+    key = f"bundle.{f1.name}~{f2.name}"
+    assert list(pairs) == [key]
+    assert pairs[key]["a_runs"] == [str(f0), str(f1)] and "b_runs" not in pairs[key]
+    app.on_close()

@@ -11,9 +11,14 @@ one-change comparisons from trusted contributors into the table between the
 (.github/workflows/aggregate.yml) runs it and opens a PR when a table changed.
 
 Pairs come from two places: comparisons people opened in the Compare view, and consecutive
-captures of the same game by the same contributor (most one-change runs are never opened
-side by side). Per change, each contributor's runs are reduced to their median first, so one
-prolific contributor can't outvote the others; the table shows the median of those.
+setups of the same game and benchmark by the same contributor (most one-change runs are never
+opened side by side). A setup is what the captures list shows as one row: a single run, or a
+bundle the user made (result.json user.bundle), its runs combined as the window combines them.
+The runs inside a bundle are also paired with each other: repeats of one setup, so baselines.
+A bundle whose runs differ (settings, system, benchmark) counts as its single runs.
+Benchmark tags (user.benchmark) keep scenes apart: Mirage runs are never paired with Dust runs.
+Per change, each contributor's runs are reduced to their median first, so one prolific
+contributor can't outvote the others; the table shows the median of those.
 """
 
 from __future__ import annotations
@@ -31,7 +36,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from frametrace import quality, skill_index
+from frametrace import feed, quality, skill_index, summary
 
 SKILLS = ROOT / "skills"
 DATASET_URL = "https://github.com/melle62/frametrace-data"
@@ -54,11 +59,27 @@ METRICS = [
 ]
 
 
+Side = tuple[str, ...]  # one side of a pair: a capture ID, or a bundle's run IDs (oldest first)
+
+
 @dataclass
 class Dataset:
     captures: dict[tuple[str, str], dict] = field(default_factory=dict)  # (who, id) -> data
-    comparisons: list[tuple[str, str, str]] = field(default_factory=list)  # (who, a, b)
+    comparisons: list[tuple[str, Side, Side]] = field(default_factory=list)  # (who, a, b)
     newest: str = ""  # latest change in the dataset, for the table's date
+    _combined: dict[tuple[str, Side], dict] = field(default_factory=dict, repr=False)
+
+    def result(self, who: str, side: Side) -> dict:
+        """A side as one result: the capture, or a bundle's runs combined (as the window does,
+        leaving out a run that disagrees with the others beyond noise)."""
+        if len(side) == 1:
+            return self.captures[(who, side[0])]
+        if (who, side) not in self._combined:
+            runs = [(Path(cid), self.captures[(who, cid)]) for cid in side]
+            setup = feed.Setup("", runs, bundle=feed.bundle_of(runs[-1][1]))
+            feed.judge_runs(setup, "Average", None)
+            self._combined[(who, side)] = setup.result
+        return self._combined[(who, side)]
 
 
 def load(root: Path) -> Dataset:
@@ -79,7 +100,9 @@ def load(root: Path) -> Dataset:
             continue
         data = rec.get("data") or {}
         if data.get("a") and data.get("b"):
-            ds.comparisons.append((rec.get("contributor", ""), data["a"], data["b"]))
+            a = tuple(data.get("a_runs") or [data["a"]])  # a bundle: its runs (app 2026-11-28+)
+            b = tuple(data.get("b_runs") or [data["b"]])
+            ds.comparisons.append((rec.get("contributor", ""), a, b))
             ds.newest = max(ds.newest, rec.get("updated_at") or "")
     return ds
 
@@ -90,35 +113,77 @@ def _exe(r: dict) -> str:
     ).lower()
 
 
-def candidate_pairs(ds: Dataset) -> list[tuple[str, str, str]]:
-    """(who, a, b): compared pairs, plus consecutive captures of one game by one contributor."""
+def _started(r: dict) -> str:
+    return (r.get("capture") or {}).get("started") or ""
+
+
+def _bench_key(r: dict) -> str:
+    return " ".join((summary.benchmark(r) or "").casefold().split())
+
+
+def setups(ds: Dataset, who: str, ids: list[str]) -> list[Side]:
+    """One contributor's captures of one game and benchmark as rows, oldest first: a bundle
+    is one row at its oldest run (unless its runs differ), every other run its own row."""
+    ids = sorted(ids, key=lambda cid: (_started(ds.captures[(who, cid)]), cid))
+    rows: list[list[str]] = []
+    bundles: dict[str, list[str]] = {}
+    for cid in ids:
+        b = feed.bundle_of(ds.captures[(who, cid)])
+        if b and b in bundles:
+            bundles[b].append(cid)
+            continue
+        rows.append([cid])
+        if b:
+            bundles[b] = rows[-1]
+    out: list[Side] = []
+    for row in rows:
+        runs = [(Path(c), ds.captures[(who, c)]) for c in row]
+        if len(row) > 1 and feed._differences(runs):  # mixed: the user's bundle isn't one setup
+            out.extend((c,) for c in row)
+        else:
+            out.append(tuple(row))
+    return out
+
+
+def candidate_pairs(ds: Dataset) -> list[tuple[str, Side, Side]]:
+    """(who, a, b): compared pairs; consecutive setups of one game and benchmark by one
+    contributor; and consecutive runs inside each bundle (repeats: baselines)."""
     pairs = {
-        p for p in ds.comparisons if (p[0], p[1]) in ds.captures and (p[0], p[2]) in ds.captures
+        p
+        for p in ds.comparisons
+        if all((p[0], cid) in ds.captures for cid in p[1] + p[2]) and p[1] != p[2]
     }
-    runs: dict[tuple[str, str], list[tuple[str, str]]] = defaultdict(list)
+    runs: dict[tuple[str, str, str], list[str]] = defaultdict(list)
     for (who, cid), r in ds.captures.items():
-        runs[(who, _exe(r))].append(((r.get("capture") or {}).get("started") or "", cid))
-    for (who, _), items in runs.items():
-        items.sort()
-        pairs.update((who, a, b) for (_, a), (_, b) in itertools.pairwise(items))
+        runs[(who, _exe(r), _bench_key(r))].append(cid)
+    for (who, _, _), ids in runs.items():
+        rows = setups(ds, who, ids)
+        pairs.update((who, a, b) for a, b in itertools.pairwise(rows))
+        for row in rows:
+            pairs.update((who, (a,), (b,)) for a, b in itertools.pairwise(row))
     return sorted(pairs)
 
 
 @dataclass
 class Judged:
     who: str
-    a: str
-    b: str
+    a: Side
+    b: Side
     pair: quality.Pair
     exe: str
     gpu: str
     resolution: str
+    benchmark: str = ""  # the user's tag for the scene, "" when untagged
+
+    @property
+    def bundled(self) -> bool:
+        return len(self.a) > 1 or len(self.b) > 1
 
 
 def judge(ds: Dataset) -> tuple[list[Judged], dict[str, quality.Contributor]]:
     judged = []
     for who, a, b in candidate_pairs(ds):
-        ra, rb = ds.captures[(who, a)], ds.captures[(who, b)]
+        ra, rb = ds.result(who, a), ds.result(who, b)
         disp = quality.main_display(rb)
         judged.append(
             Judged(
@@ -129,6 +194,7 @@ def judge(ds: Dataset) -> tuple[list[Judged], dict[str, quality.Contributor]]:
                 _exe(rb),
                 quality.main_gpu(rb).get("name") or "?",
                 f"{disp.get('width')}×{disp.get('height')}" if disp.get("width") else "?",
+                summary.benchmark(rb) or "",
             )
         )
     by_who: dict[str, list[dict]] = defaultdict(list)
@@ -255,6 +321,40 @@ def report(judged: list[Judged], people: dict) -> str:
         )
     usable = sum(j.pair.usable_for_costs for j in judged)
     lines += ["", f"{len(judged)} pairs judged, {usable} usable for setting costs."]
+    lines += [
+        "",
+        "## Pairs by game and benchmark",
+        "",
+        "Bundled: pairs where a side is a bundle (its runs combined). Failed: the checks that",
+        "kept pairs from being usable for costs, most common first.",
+        "",
+        (
+            "| Game | Benchmark | Pairs | Bundled | Comparable | Baselines (agreeing)"
+            " | One change | Usable | Failed |"
+        ),
+        "|---|---|---|---|---|---|---|---|---|",
+    ]
+    groups: dict[tuple[str, str], list[Judged]] = defaultdict(list)
+    for j in judged:
+        groups[(j.exe, j.benchmark)].append(j)
+    for (exe, bench), items in sorted(groups.items()):
+        failed: dict[str, int] = defaultdict(int)
+        for j in items:
+            if not j.pair.usable_for_costs:
+                for c in j.pair.checks:
+                    if not c.passed:
+                        failed[c.name] += 1
+        top = ", ".join(
+            f"{n} {k}" for k, n in sorted(failed.items(), key=lambda kv: (-kv[1], kv[0]))[:4]
+        )
+        lines.append(
+            f"| {exe or '?'} | {bench or 'untagged'} | {len(items)} |"
+            f" {sum(j.bundled for j in items)} | {sum(j.pair.comparable for j in items)} |"
+            f" {sum(j.pair.baseline for j in items)}"
+            f" ({sum(j.pair.agreeing_baseline for j in items)}) |"
+            f" {sum(j.pair.passed('one change') for j in items)} |"
+            f" {sum(j.pair.usable_for_costs for j in items)} | {top or '-'} |"
+        )
     return "\n".join(lines)
 
 

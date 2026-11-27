@@ -134,12 +134,7 @@ def same_length(a: dict, b: dict) -> bool:
 
 
 benchmark = summary.benchmark
-
-
-def same_benchmark(a: dict, b: dict) -> bool:
-    """Both untagged, or the same tag (case and spaces don't matter)."""
-    ta, tb = benchmark(a), benchmark(b)
-    return " ".join((ta or "").casefold().split()) == " ".join((tb or "").casefold().split())
+same_benchmark = summary.same_benchmark
 
 
 def benchmarks(captures: list[Capture]) -> list[str]:

@@ -150,7 +150,7 @@ class FakeServer:
     """Records requests; replies like the share and forget functions."""
 
     def __init__(self):
-        self.calls, self.have_csv, self.fail = [], set(), None
+        self.calls, self.have_csv, self.fail, self.sent = [], set(), None, []
 
     def __call__(self, method, url, body, ctype):
         if self.fail:
@@ -162,6 +162,7 @@ class FakeServer:
         req = json.loads(body)
         fn = url.rsplit("/", 1)[1]
         self.calls.append((fn, req.get("kind"), req.get("id"), "csv" in req))
+        self.sent.append(req)
         if fn == "forget":
             return 200, json.dumps({"ok": True, "deleted": 3}).encode()
         upload = f"https://upload/{req['id']}" if "csv" in req else None
@@ -421,3 +422,118 @@ def test_every_game_skill_and_the_template_have_the_community_markers():
         ROOT / "skills/game-skill-template.md",
     ]:
         assert aggregate.BLOCK.search(path.read_text(encoding="utf-8")), path
+
+
+# --- benchmark tags and bundles ---------------------------------------------------------------
+
+
+def tagged(r: dict, benchmark: str | None = None, bundle: str | None = None) -> dict:
+    r["user"] = {**r["user"], **({"benchmark": benchmark} if benchmark else {})}
+    if bundle:
+        r["user"]["bundle"] = bundle
+    return r
+
+
+def test_runs_of_different_benchmarks_are_not_comparable():
+    a, b = tagged(capture(), "Dust Benchmark"), tagged(capture(seed=5), "Mirage Benchmark")
+    pair = quality.judge_pair(a, b)
+    assert not pair.passed("same benchmark") and not pair.comparable and not pair.baseline
+    same = quality.judge_pair(a, tagged(capture(seed=5), "dust  benchmark"))  # case, spaces
+    assert same.passed("same benchmark") and same.agreeing_baseline
+
+
+def test_aggregate_pairs_runs_within_a_benchmark_only(tmp_path):
+    # Dust, Mirage, Dust, Mirage in time order: consecutive runs of one benchmark pair up,
+    # the runs next to each other in time (different scenes) don't
+    caps = runs("14:00", HIGH, HIGH, HIGH, HIGH)
+    for i, (_, r) in enumerate(caps):
+        tagged(r, "Dust Benchmark" if i % 2 == 0 else "Mirage Benchmark")
+    write_dataset(tmp_path, "aaaaaaaaaaaaaaaa", caps)
+    judged, _ = aggregate.judge(aggregate.load(tmp_path))
+    ids = [c for c, _ in caps]
+    assert {(j.a, j.b) for j in judged} == {((ids[0],), (ids[2],)), ((ids[1],), (ids[3],))}
+    assert {j.benchmark for j in judged} == {"Dust Benchmark", "Mirage Benchmark"}
+
+
+def test_aggregate_combines_bundles_and_pairs_the_runs_inside_them(tmp_path):
+    caps = runs("14:00", HIGH, HIGH, LOW, LOW)
+    ids = [c for c, _ in caps]
+    for i, (_, r) in enumerate(caps):
+        tagged(r, "Dust Benchmark", bundle=ids[1] if i < 2 else ids[3])
+    write_dataset(tmp_path, "aaaaaaaaaaaaaaaa", caps)
+    ds = aggregate.load(tmp_path)
+    assert aggregate.setups(ds, "aaaaaaaaaaaaaaaa", ids) == [tuple(ids[:2]), tuple(ids[2:])]
+    judged, people = aggregate.judge(ds)
+    sides = {(j.a, j.b): j for j in judged}
+    assert set(sides) == {
+        (tuple(ids[:2]), tuple(ids[2:])),  # bundle against bundle, runs combined
+        ((ids[0],), (ids[1],)),  # repeats inside each bundle: baselines
+        ((ids[2],), (ids[3],)),
+    }
+    combined = sides[(tuple(ids[:2]), tuple(ids[2:]))]
+    assert combined.bundled and combined.pair.usable_for_costs
+    assert people["aaaaaaaaaaaaaaaa"].agreeing_baselines == 2
+    assert people["aaaaaaaaaaaaaaaa"].level == "trusted"
+    assert len(aggregate.rows_for({"cs2.exe"}, judged, people)) == 1
+    report = aggregate.report(judged, people)
+    assert "| cs2.exe | Dust Benchmark | 3 | 1 | 3 | 2 (2) | 1 | 1 |" in report
+
+
+def test_a_bundle_whose_runs_differ_counts_as_single_runs(tmp_path):
+    caps = runs("14:00", HIGH, LOW)
+    ids = [c for c, _ in caps]
+    for _, r in caps:
+        tagged(r, bundle=ids[1])
+    write_dataset(tmp_path, "aaaaaaaaaaaaaaaa", caps)
+    ds = aggregate.load(tmp_path)
+    assert aggregate.setups(ds, "aaaaaaaaaaaaaaaa", ids) == [(ids[0],), (ids[1],)]
+
+
+def test_aggregate_reads_bundled_sides_of_shared_comparisons(tmp_path):
+    caps = runs("14:00", HIGH, HIGH, LOW)
+    ids = [c for c, _ in caps]
+    write_dataset(tmp_path, "aaaaaaaaaaaaaaaa", caps)
+    path = tmp_path / "comparisons" / "cs2" / "aaaaaaaaaaaaaaaa" / "x.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = {"a": ids[1], "b": ids[2], "a_runs": ids[:2], "b_runs": None}
+    path.write_text(json.dumps({"contributor": "aaaaaaaaaaaaaaaa", "data": data}))
+    ds = aggregate.load(tmp_path)
+    assert ds.comparisons == [("aaaaaaaaaaaaaaaa", tuple(ids[:2]), (ids[2],))]
+    assert ("aaaaaaaaaaaaaaaa", tuple(ids[:2]), (ids[2],)) in aggregate.candidate_pairs(ds)
+
+
+def test_a_compared_bundle_is_shared_as_its_runs_combined(tmp_path):
+    server = FakeServer()
+    sharer = share.Sharer(tmp_path / "shared.json", "https://inbox/fn", server)
+    root = tmp_path / "caps"
+    a1 = saved_capture(
+        root, "20261127-220044-cs2", tagged(capture(), "Dust", "20261127-220240-cs2")
+    )
+    a2 = saved_capture(
+        root, "20261127-220240-cs2", tagged(capture(seed=4), "Dust", "20261127-220240-cs2")
+    )
+    b = saved_capture(root, "20261127-221000-cs2", tagged(capture(settings=LOW, scale=0.9), "Dust"))
+    caps = [(f, json.loads((f / "result.json").read_text())) for f in (a1, a2, b)]
+    sharer.note_pair(a2, b, "avg_fps", None, a_runs=[a1, a2], a_bundle="20261127-220240-cs2")
+    # a bundle compared with one of its own runs gets its own key, not "x~x"
+    sharer.note_pair(a2, a2, "avg_fps", None, a_runs=[a1, a2], a_bundle="20261127-220240-cs2")
+    assert sharer.sync(caps).error is None
+    keys = [c[2] for c in server.calls if c[:2] == ("share", "comparison")]
+    assert keys == [
+        "bundle.20261127-220240-cs2~20261127-221000-cs2",
+        "bundle.20261127-220240-cs2~20261127-220240-cs2",
+    ]
+    data = next(r["data"] for r in server.sent if r["id"] == keys[0])
+    assert data["a"] == "20261127-220240-cs2" and data["b"] == "20261127-221000-cs2"
+    assert data["a_runs"] == ["20261127-220044-cs2", "20261127-220240-cs2"]
+    assert data["b_runs"] is None and data["benchmark"] == {"a": "Dust", "b": "Dust"}
+    # the deltas are the bundle's: its two runs averaged, as Compare showed them
+    from frametrace import feed
+
+    combined = feed.combine([(a1, caps[0][1]), (a2, caps[1][1])])
+    assert data["deltas"]["Average"]["a"] == pytest.approx(
+        combined["analysis"]["stats"]["avg_fps"], rel=1e-6
+    )
+    assert data["deltas"]["Average"]["a"] != pytest.approx(
+        caps[1][1]["analysis"]["stats"]["avg_fps"]
+    )
