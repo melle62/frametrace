@@ -45,6 +45,9 @@ wrapping the PresentMon console 2.6.0. MIT. Alpha.
   captures with the scene ("Mirage Benchmark"); its list holds every tag captures already have,
   and right-click › Benchmark retags runs. Each tag gets its own base, and a row is named after
   the change from the run of the same benchmark before it. Not checked on Windows yet.
+- Multiple selection: Ctrl+click selects any number of rows; Delete, Ctrl+G (group),
+  right-click (bundle, benchmark, move, delete) and dragging act on all of them; Esc clears.
+  Not checked on Windows yet.
 - Live services: a Supabase inbox (project `frametrace`, eu-north-1) receives opt-in shared
   captures; a daily export (02:23 UTC) publishes them to `melle62/frametrace-data`; a weekly
   workflow (Mondays 04:41 UTC) opens a PR that updates the game skills' community-data tables.

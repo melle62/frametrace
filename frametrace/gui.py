@@ -206,11 +206,10 @@ class App:
         r.bind_all("<Up>", lambda e: self._key_move(e, -1), add="+")
         r.bind_all("<Down>", lambda e: self._key_move(e, 1), add="+")
         r.bind_all("<F2>", lambda e: self._key_selected(e, self.rename_capture), add="+")
-        r.bind_all(
-            "<Delete>",
-            lambda e: self._key_selected(e, lambda f: self.ask_delete(self._runs_of(f))),
-            add="+",
-        )
+        r.bind_all("<Delete>", lambda e: self._key_all(e, self.ask_delete), add="+")
+        for seq in ("<Control-g>", "<Control-G>"):
+            r.bind_all(seq, lambda e: self._key_all(e, self.ask_group), add="+")
+        r.bind_all("<Escape>", self._key_escape, add="+")
 
     @staticmethod
     def _typing(widget) -> bool:
@@ -239,6 +238,38 @@ class App:
             return None
         action(self.selected[-1])
         return "break"
+
+    def _key_all(self, e, action) -> str | None:
+        """Delete / Ctrl+G on every selected row's runs, unless a text field has the keys."""
+        if self._typing(e.widget) or not self._in_main(e) or not self.selected or self.profile_key:
+            return None
+        action(self.selected_folders())
+        return "break"
+
+    def _key_escape(self, e) -> str | None:
+        """Esc drops a multiple selection back to the row clicked last."""
+        if self._typing(e.widget) or not self._in_main(e) or len(self.selected) < 2 or self.confirm:
+            return None
+        self.select(self.selected[-1], add=False)
+        return "break"
+
+    def _in_main(self, e) -> bool:
+        """The key went to the main window, not a dialog over it."""
+        try:
+            return e.widget.winfo_toplevel() is self.root
+        except (AttributeError, KeyError, tk.TclError):
+            return False
+
+    def selected_rows(self) -> list[feed.Setup]:
+        return [self.setups[k] for k in self.selected if k in self.setups]
+
+    def selected_folders(self) -> list[Path]:
+        """Every run of the selected rows, once (a bundle and one of its runs can both be
+        selected)."""
+        out: list[Path] = []
+        for r in self.selected_rows():
+            out += [f for f in r.folders if f not in out]
+        return out
 
     def _runs_of(self, folder: Path) -> list[Path]:
         s = self.setup_for(folder)
@@ -986,7 +1017,12 @@ class App:
         bg = "surface2" if sel else "background"
         row = tk.Frame(parent, bg=t.c[bg], cursor="hand2")
         row.pack(fill="x")
-        edge = tk.Frame(row, width=2, bg=t.c["accent"] if sel else t.c[bg])
+        # one yellow edge: on the row the main column shows. Two compared rows both keep it
+        # (A and B are both shown); in a larger selection the others get a neutral edge
+        lit = sel and (len(self.selected) <= 2 or key == self.selected[-1])
+        edge = tk.Frame(
+            row, width=2, bg=t.c["accent" if lit else "border_visible" if sel else bg]
+        )
         edge.pack(side="left", fill="y")
         value_w, delta_w = self._rail_widths()
         widgets: list[tk.Widget] = [row]
@@ -1219,6 +1255,8 @@ class App:
         s = self.setups.get(key)
         if s is None or target is None:
             return None
+        if key in self.selected and len(self.selected) > 1:
+            return self._drop_many(target)
         kind, thing, _ = target
         src = s.parent or s  # where the dragged row lives now
         if kind == "row":
@@ -1238,6 +1276,30 @@ class App:
             return (f"Move to {h.title}", lambda: self._move_rows(s, h.title))
         if h.key == f"game:{game}":
             return (f"Out of the group, under {h.title}", lambda: self._move_rows(s, None))
+        return None
+
+    def _drop_many(self, target: tuple):
+        """Dropping several selected rows: on a run or bundle of the same game, bundle them all
+        with it; on a group's heading, move them there; on their game's heading, back under it."""
+        rows = self.selected_rows()
+        kind, thing, _ = target
+        n = len(rows)
+        if kind == "row":
+            dst = thing.parent or thing
+            if any(exe_of(r) != exe_of(dst) for r in rows):
+                return None
+            others = [r for r in rows if (r.parent or r) is not dst]
+            if not others:
+                return None
+            return (f"Bundle {n} with {dst.name}", lambda: self.bundle_many([dst, *others]))
+        h: feed.Heading = thing
+        if h.custom and any(r.heading != h.key or r.parent is not None for r in rows):
+            return (f"Move {n} to {h.title}", lambda: self.move_rows_to(rows, h.title))
+        names = feed.game_names(self.captures)
+        same_game = all(f"game:{feed.game_of(r.runs[0][1], names)}" == h.key for r in rows)
+        moves = any(r.heading != h.key or r.parent is not None for r in rows)
+        if same_game and moves:  # out of a group, or a picked run out of its bundle
+            return (f"Move {n} under {h.title}", lambda: self.move_rows_to(rows, None))
         return None
 
     def bundle_rows(self, s: feed.Setup, dst: feed.Setup) -> None:
@@ -1280,6 +1342,9 @@ class App:
                 m.tk_popup(event.x_root, event.y_root)
             finally:
                 m.grab_release()
+            return
+        if key in self.selected and len(self.selected) > 2:
+            self._many_menu(event)
             return
         other = [k for k in self.selected if k != key]
         # with two rows selected and the click on one of them, group and delete act on both
@@ -1339,6 +1404,75 @@ class App:
             m.tk_popup(event.x_root, event.y_root)
         finally:
             m.grab_release()
+
+    def _many_menu(self, event) -> None:
+        """The menu for three or more selected rows: what acts on all of them at once."""
+        m = self._menu()
+        rows = self.selected_rows()
+        folders = self.selected_folders()
+        runs = f"{len(folders)} run{'s' if len(folders) != 1 else ''}"
+        m.add_command(label=f"{len(rows)} selected · {runs}", state="disabled")
+        m.add_separator()
+        can = len({exe_of(r) for r in rows}) == 1 and len({id(r.parent or r) for r in rows}) > 1
+        m.add_command(
+            label="Bundle the selected", command=lambda: self.bundle_many(rows),
+            state="normal" if can else "disabled",
+        )  # fmt: skip
+        m.add_command(
+            label="Take out of their bundles",
+            command=lambda: self._save_user(folders, bundle=None),
+            state="normal" if any(r.is_bundle or r.parent for r in rows) else "disabled",
+        )
+        m.add_cascade(label="Benchmark", menu=self._benchmark_menu(m, folders))
+        sub = self._menu(m)
+        for g in self.custom_groups():
+            sub.add_command(label=g, command=lambda g=g: self.move_rows_to(rows, g))
+        if self.custom_groups():
+            sub.add_separator()
+        sub.add_command(label="New group…", command=lambda: self.ask_group(folders),
+                        accelerator="Ctrl+G")  # fmt: skip
+        sub.add_command(
+            label="Back under their games",
+            command=lambda: self.move_rows_to(rows, None),
+            state="normal" if any(self._group_of(f) for f in folders) else "disabled",
+        )
+        m.add_cascade(label="Move to group", menu=sub)
+        m.add_separator()
+        m.add_command(label=f"Delete {runs}…", command=lambda: self.ask_delete(folders),
+                      accelerator="Del")  # fmt: skip
+        try:
+            m.tk_popup(event.x_root, event.y_root)
+        finally:
+            m.grab_release()
+
+    def bundle_many(self, rows: list[feed.Setup]) -> None:
+        """Put every selected row's runs in one bundle: the oldest row's, if it is one."""
+        tops: list[feed.Setup] = []
+        for r in rows:
+            top = r.parent or r
+            if top not in tops:
+                tops.append(top)
+        dst = min(tops, key=lambda r: r.runs[0][1]["capture"].get("started") or "")
+        bundle = dst.bundle or dst.runs[0][0].name
+        group = summary.group(dst.runs[0][1])
+        folders = list(dict.fromkeys(f for r in tops for f in r.folders))
+        self._save_user(folders, bundle=bundle, group=group)
+        self.toggle_bundle(bundle, True)
+        found = next(
+            (r for h in self.feed for r in h.setups if r.bundle == bundle and r.is_bundle), None
+        )
+        if found:
+            self.select(found.key, add=False)
+
+    def move_rows_to(self, rows: list[feed.Setup], group: str | None) -> None:
+        """Move rows to a group (None: back under their games). A bundle moves whole; a run
+        picked out of a bundle leaves it."""
+        whole = [f for r in rows if r.parent is None for f in r.folders]
+        loose = [f for r in rows if r.parent is not None for f in r.folders if f not in whole]
+        if whole:
+            self._save_user(whole, group=group)
+        if loose:
+            self._save_user(loose, group=group, bundle=None)
 
     def _benchmark_menu(self, parent: tk.Menu, folders: list[Path]) -> tk.Menu:
         """Tag runs with a benchmark: an existing tag, a new one, or none. A tick marks the
@@ -1430,7 +1564,7 @@ class App:
                 self.setups[s.key] = s
                 for c in s.children:  # a bundle's runs, each selectable on its own
                     self.setups[c.key] = c
-        self.selected = [k for k in self.selected if k in self.setups][-2:]
+        self.selected = [k for k in self.selected if k in self.setups]
         if self.profile_key and not any(h.key == self.profile_key for h in self.feed):
             self.profile_key = None
 
@@ -1745,6 +1879,8 @@ class App:
         self.tabs.set_disabled("Game", not result)
         if not self.captures:
             hint = ""
+        elif len(self.selected) > 2:
+            hint = f"{len(self.selected)} selected · Ctrl+G group · Del · Esc"
         elif two:
             hint = "Ctrl+click a selected capture to leave the comparison"
         else:
@@ -2754,9 +2890,9 @@ class App:
             if not add:
                 self.selected = []
         if add and self.selected and folder not in self.selected:
-            self.selected = [self.selected[-1], folder]
-        elif add and folder in self.selected and len(self.selected) == 2:
-            self.selected.remove(folder)
+            self.selected = [*self.selected, folder]  # Ctrl+click adds; two rows compare
+        elif add and folder in self.selected and len(self.selected) > 1:
+            self.selected.remove(folder)  # Ctrl+click on a selected row takes it out
         elif not add and self.selected == [folder]:
             return
         else:
