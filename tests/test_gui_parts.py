@@ -459,3 +459,74 @@ def test_window_organizes_captures(tk_root, tmp_path, monkeypatch):
     assert folders[2] not in app.selected and app.selected
     assert capture.list_captures(root)[0][0] == folders[1]
     app.on_close()
+
+
+def test_window_selects_many_rows(tk_root, tmp_path, monkeypatch):
+    """Ctrl+click selects any number of rows; Ctrl+G, Delete, the menu and drag act on all."""
+    from frametrace import gui, hotkey, presentmon, sysinfo
+
+    class Listener:
+        def __init__(self, key, cb):
+            self.hotkey = key
+
+        def start_and_wait(self):
+            return None
+
+        def is_alive(self):
+            return True
+
+        def stop(self):
+            pass
+
+    def not_found():
+        raise presentmon.PresentMonNotFound("not here")
+
+    monkeypatch.setattr(gui, "SETTINGS_PATH", tmp_path / "settings.json")
+    monkeypatch.setattr(hotkey, "HotkeyListener", Listener)
+    monkeypatch.setattr(sysinfo, "collect", fake_system)
+    monkeypatch.setattr(presentmon, "find_presentmon", not_found)
+    root = tmp_path / "captures"
+    folders = _saved_captures(root, 4, ("cs2.exe", "cs2.exe", "cs2.exe", "DayZ_x64.exe"))
+    monkeypatch.setattr(gui.TextDialog, "ask", staticmethod(lambda *a, **k: "Mirage runs"))
+    app = gui.App(tk_root, captures_root=root)
+    tk_root.update()
+
+    a, b, c, dayz = folders
+    app.select(a, add=False)
+    app.select(b, add=True)
+    assert app.tabs.current == "Compare"  # two rows still compare
+    app.select(c, add=True)
+    app.select(dayz, add=True)
+    assert app.selected == [a, b, c, dayz] and app.tabs.current == "Summary"
+    app.select(dayz, add=True)  # Ctrl+click again takes it out
+    assert app.selected == [a, b, c]
+
+    class Key:
+        widget = app.rail
+
+    assert app._key_all(Key(), app.ask_group) == "break"  # Ctrl+G
+    assert {summary.group(app.result_for(f)) for f in (a, b, c)} == {"Mirage runs"}
+    assert summary.group(app.result_for(dayz)) is None
+    app.selected = [a, b, c]
+    app._save_user([a, b, c], benchmark="Mirage Benchmark")
+    assert {summary.benchmark(app.result_for(f)) for f in (a, b, c)} == {"Mirage Benchmark"}
+
+    rows = app.selected_rows()
+    heading = next(h for h in app.feed if h.custom)
+    dayz_row = app.setups[dayz]
+    assert app._drop_many(("row", dayz_row, [])) is None  # another game: no bundle
+    text, _ = app._drop_many(("row", app.setups[a], []))
+    assert text.startswith("Bundle 3 with")
+    app.bundle_many(rows)
+    bundles = {(app.result_for(f).get("user") or {}).get("bundle") for f in (a, b, c)}
+    assert len(bundles) == 1 and None not in bundles
+    assert heading.title == "Mirage runs"
+
+    app.select(dayz, add=True)
+    app.selected = [k for k in app.selected]  # the bundle and DayZ
+    assert set(app.selected_folders()) == {a, b, c, dayz}
+    assert app._key_all(Key(), app.ask_delete) == "break"  # Delete asks for all of them
+    assert app.confirm and "these 4 captures" in app.confirm[0]
+    app.cancel_confirm()
+    assert app._key_escape(Key()) == "break" and app.selected == [dayz]
+    app.on_close()

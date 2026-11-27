@@ -17,7 +17,7 @@ VIDEO = [
 AVG = goals.get("avg_fps")
 LOWS = goals.get("lows")
 
-_minute = iter(range(10, 60))
+_minute = iter(range(60))
 
 
 def run(
@@ -410,3 +410,12 @@ def test_report_and_compare_name_the_benchmark():
     assert "Benchmark: A Mirage Benchmark · B Anubis DM" in text
     _, _, notes = summary.compare_verdict(a, b)
     assert any(n.startswith("Different benchmarks") for n in notes)
+
+
+def test_comparing_two_games_says_so():
+    a = run()[1]
+    b = run()[1]
+    b["capture"]["app"] = "DayZ_x64.exe"
+    b["game"] = {"exe": "DayZ_x64.exe", "name": "DayZ"}
+    _, _, notes = summary.compare_verdict(a, b)
+    assert "Different games: A is Counter-Strike 2, B is DayZ." in notes

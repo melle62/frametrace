@@ -506,8 +506,8 @@ def compare_verdict(
         notes.append("No Reflex latency markers in both captures: judged by frame time.")
     la, lb = _limit(a), _limit(b)
     if la != lb and "unknown" not in (la, lb):
-        name = {"GPU": "the GPU", "CPU": "the CPU", "wait": "VSync or a cap", "cap": "a frame cap"}
-        notes.append(f"The limit moved from {name[la]} to {name[lb]}.")
+        word = {"GPU": "the GPU", "CPU": "the CPU", "wait": "VSync or a cap", "cap": "a frame cap"}
+        notes.append(f"The limit moved from {word[la]} to {word[lb]}.")
     ca, cb = a["capture"], b["capture"]
     if ca.get("app") != cb.get("app"):
         notes.append(f"Different games: A is {name(a)}, B is {name(b)}.")
