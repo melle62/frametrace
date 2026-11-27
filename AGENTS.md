@@ -31,10 +31,11 @@ wrapping the PresentMon console 2.6.0. MIT. Alpha.
   before, measured against a base; each game has a profile page. Checked on Windows by Cursor
   (2026-11-27, PR #8): the right-click menus and the real CS2 list (no separate `CS2.EXE`
   heading). 125% and 150% were only simulated in code; real Windows scaling is still task 3.
-- **PR #11 is open** (`feature/manual-bundles`, built on PR #10 at Melvin's call): runs no longer stack on
-  their own. The user drags a run onto another to bundle repeats (`user.bundle` in
-  `result.json`), a bundle opens as a tree of its runs, and rows drag out of bundles and
-  between groups. Until it's merged, don't start other work on `feed.py` or `gui.py`.
+- **PR #11 is open** (`feature/manual-bundles`, built on PR #10 at Melvin's call): runs no
+  longer stack on their own. The user drags a run onto another to bundle repeats
+  (`user.bundle` in `result.json`), a bundle opens as a tree of its runs, and rows drag out of
+  bundles and between groups. Until it's merged, don't start other work on `feed.py` or
+  `gui.py`.
 - Live services: a Supabase inbox (project `frametrace`, eu-north-1) receives opt-in shared
   captures; a daily export (02:23 UTC) publishes them to `melle62/frametrace-data`; a weekly
   workflow (Mondays 04:41 UTC) opens a PR that updates the game skills' community-data tables.
