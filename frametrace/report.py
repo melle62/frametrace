@@ -236,12 +236,20 @@ def stack_lines(r: dict) -> list[str]:
         return []
     used, n = st["used"], st["runs"]
     left = f" ({n - used} left out: far from the others, beyond run-to-run noise)"
+    mixed = st.get("mixed") or []
+    same = "repeats of one setup" if not mixed else "bundled, but not all the same"
     lines = [
         (
-            f"Runs: {n} with the same settings, combined{left if used < n else ''}."
+            f"Runs: {n} {same}, combined{left if used < n else ''}."
             " Numbers below are the mean of the runs that count; per-second FPS is pooled."
         )
     ]
+    if mixed:
+        lines.append(
+            "Not the same in every run: "
+            + "; ".join(f"{k} {a} -> {b}" for k, a, b in mixed)
+            + ". Weigh the combined numbers with that in mind."
+        )
     out = set(st.get("left_out") or [])
     for name, started, nums in zip(st["folders"], st["started"], st["per_run"]):
         lines.append(

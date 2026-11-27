@@ -25,13 +25,17 @@ wrapping the PresentMon console 2.6.0. MIT. Alpha.
 
 ## 2. Current state (2026-11-27)
 
-- `main` has PR #8 (merged 2026-11-27). `pytest` on Linux: 142 pass, 6 skip (Tk and
+- `main` has PR #8 (merged 2026-11-27). `pytest` on Linux: 143 pass, 6 skip (Tk and
   Windows-only).
-- The captures list is a **feed of setups** (`feed.py`): unchanged runs stack as `×3`, a row is
-  named after what changed from the setup before, every row is measured against a base, and
-  each game has a profile page. Checked on Windows by Cursor (2026-11-27): the right-click
-  menus and the real CS2 list (no separate `CS2.EXE` heading). 125% and 150% were only
-  simulated in code; real Windows scaling is still part of task 3.
+- The captures list (`feed.py`): one row per run, named after what changed from the row
+  before, measured against a base; each game has a profile page. Checked on Windows by Cursor
+  (2026-11-27, PR #8): the right-click menus and the real CS2 list (no separate `CS2.EXE`
+  heading). 125% and 150% were only simulated in code; real Windows scaling is still task 3.
+- **PR #11 is open** (`feature/manual-bundles`, built on PR #10 at Melvin's call): runs no
+  longer stack on their own. The user drags a run onto another to bundle repeats
+  (`user.bundle` in `result.json`), a bundle opens as a tree of its runs, and rows drag out of
+  bundles and between groups. Until it's merged, don't start other work on `feed.py` or
+  `gui.py`.
 - Live services: a Supabase inbox (project `frametrace`, eu-north-1) receives opt-in shared
   captures; a daily export (02:23 UTC) publishes them to `melle62/frametrace-data`; a weekly
   workflow (Mondays 04:41 UTC) opens a PR that updates the game skills' community-data tables.
@@ -117,7 +121,7 @@ comparisons → `summary` words the window → `gui` shows it.
 | Module | Job |
 |---|---|
 | `gui.py` | the window (2,850 lines, the main conflict hotspot) |
-| `feed.py` | the captures list as a feed of setups (stacking, names, bases) and the game profile |
+| `feed.py` | the captures list: rows, user bundles, names, bases, and the game profile |
 | `theme.py`, `instruments.py` | design tokens; scope, readouts, lamps, buttons (`theme.px` scales for DPI) |
 | `summary.py` | window wording, goal verdicts, settings changes, names and groups |
 | `report.py` | the report as a prompt, checks, `result.json`, compare, answer templates |

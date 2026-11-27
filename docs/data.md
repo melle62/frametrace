@@ -31,16 +31,15 @@ Frametrace window ── share ──▶ inbox (Supabase, Stockholm)
   in UTC; `capture.other_presenters` becomes a count; `capture.foreground` becomes
   `foreground_is_game`; `game.window_title` and the CLI's `capture.source` go; `system.errors`
   becomes a count; then every string is scrubbed (user folders → `<user>`, e-mail addresses,
-  Steam IDs and `userdata\<id>` → `<account>`). Labels, groups, `user.split` (a run the user
-  split off from the one before in the captures list) and `user.advice` ("Changes suggested by"
-  in Compare) are kept. `filtered_csv()` keeps the header and the rows of the
+  Steam IDs and `userdata\<id>` → `<account>`). Labels, groups, `user.bundle` (the bundle the user dragged a run
+  into in the captures list) and `user.advice` ("Changes suggested by" in Compare) are kept. `filtered_csv()` keeps the header and the rows of the
   game's process ID, gzipped, at most 50 MB.
 - **Comparisons.** Opening a pair in Compare (or copying its prompt) notes it.
   `comparison_bundle()` holds both capture IDs, the game, the goal and target, the goal's status
   and verdict, the notes, every delta (A, B, change, status), the settings changed, whether
   they changed nothing yet results moved, the advice and whether it was copied.
 - **Sending.** `Sharer.sync()` runs on a worker thread after start, after each capture, after
-  label, group, split and advice edits, and after a comparison is noted. For each capture and
+  label, group, bundle and advice edits, and after a comparison is noted. For each capture and
   comparison it compares the SHA-256 of the bundle with what it sent last (`shared.json`) and
   sends only what changed; a CSV is sent once. When the inbox answers `csv_deferred` (too many
   CSVs waiting for the export), the bundles keep going but CSVs wait 6 hours. A network or

@@ -101,6 +101,11 @@ def save_settings(settings: dict) -> None:
         pass
 
 
+def exe_of(s: feed.Setup) -> str:
+    """The exe a row's runs come from (lower case)."""
+    return feed.exe(s.runs[0][1])
+
+
 def _clock(seconds: float) -> str:
     s = int(seconds)
     return f"{s // 60:02d}:{s % 60:02d}"
@@ -126,6 +131,8 @@ class App:
         self.feed: list[feed.Heading] = []  # the list: headings of setups (frametrace.feed)
         self.setups: dict[Path, feed.Setup] = {}  # every run's folder -> its setup
         self.profile_key: str | None = None  # a heading whose game profile is shown
+        self.drag: dict | None = None  # a row being dragged in the list
+        self.drop_targets: dict = {}  # list widgets a dragged row can land on
         self.record_info: dict = {}
         self.note_job: str | None = None
         self.poll_job: str | None = None
@@ -605,8 +612,9 @@ class App:
         for child in inner.winfo_children():
             child.destroy()
         self._rebuild_feed()
-        self.count_label.configure(text=str(len(self.captures)))
+        self.count_label.configure(text=str(len(self.captures)), fg=t.c["text3"])
         self.rail_order = []
+        self.drop_targets: dict[tk.Widget, tuple] = {}
         if not self.captures:
             box = frame(inner, t)
             box.pack(fill="x", padx=px(8), pady=px(8))
@@ -615,14 +623,19 @@ class App:
                 box, t, "Each capture is saved here, newest first.", font="caption", fg="text3"
             ).pack(anchor="w", pady=(px(2), 0))
         folded = set(self.settings.get("collapsed") or [])
+        opened = set(self.settings.get("open_bundles") or [])
         for h in self.feed:
             shut = h.title in folded
             self._group_head(inner, h, shut)
             if shut:
                 continue
             for s in h.setups:
-                self.rail_order.append(s.folder)
+                self.rail_order.append(s.key)
                 self._rail_row(inner, h, s)
+                if s.is_bundle and s.bundle in opened:
+                    for i, c in enumerate(reversed(s.children)):  # newest first, like the list
+                        self.rail_order.append(c.key)
+                        self._rail_row(inner, h, c, last=i == s.count - 1)
         self._render_foot()
 
     # the list's columns: name | count | value | change against the base
@@ -637,17 +650,8 @@ class App:
         shown = self.profile_key == h.key
         head = tk.Frame(parent, bg=t.c["background"], cursor="hand2")
         head.pack(fill="x", pady=(px(10), px(4)))
-        chev = tk.Canvas(
-            head, width=px(10), height=px(10), bg=t.c["background"], highlightthickness=0, bd=0
-        )
+        chev = self._chevron(head, shut, "background")
         chev.pack(side="left", padx=(px(10), px(8)))
-        c, w = px(5), px(3)
-        pts = (
-            (c - 1, c - w, c + w - 1, c, c - 1, c + w)
-            if shut
-            else (c - w, c - 1, c, c + w - 1, c + w, c - 1)
-        )
-        chev.create_line(*pts, fill=t.c["text3"], width=max(1, px(1.5)), capstyle="projecting")
         name = silk(head, t, h.title, fg="text1" if shown else "text2" if h.custom else "text3")
         name.pack(side="left")
         if shut:
@@ -661,6 +665,21 @@ class App:
             wdg.bind("<Button-1>", lambda _e, k=h.key: self.open_profile(k))
         for wdg in (head, chev, name, right):
             wdg.bind("<Button-3>", lambda e, hh=h: self._group_menu(e, hh))
+        self.drop_targets[head] = ("heading", h, [name])
+
+    def _chevron(self, parent, shut: bool, bg: str, color: str = "text3") -> tk.Canvas:
+        """10px chevron, 1.5px stroke, square caps: right when shut, down when open."""
+        t = self.t
+        size = px(10)
+        chev = tk.Canvas(parent, width=size, height=size, bg=t.c[bg], highlightthickness=0, bd=0)
+        c, w = px(5), px(3)
+        pts = (
+            (c - 1, c - w, c + w - 1, c, c - 1, c + w)
+            if shut
+            else (c - w, c - 1, c, c + w - 1, c + w, c - 1)
+        )
+        chev.create_line(*pts, fill=t.c[color], width=max(1, px(1.5)), capstyle="projecting")
+        return chev
 
     def toggle_group(self, heading: str) -> None:
         folded = list(self.settings.get("collapsed") or [])
@@ -669,6 +688,20 @@ class App:
         else:
             folded.append(heading)
         self.settings["collapsed"] = folded
+        save_settings(self.settings)
+        self.render_rail()
+
+    def toggle_bundle(self, bundle: str, open_: bool | None = None) -> None:
+        """Open a bundle to show its runs (as a tree under it), or close it."""
+        opened = list(self.settings.get("open_bundles") or [])
+        now = bundle in opened
+        if open_ is None:
+            open_ = not now
+        if open_ and not now:
+            opened.append(bundle)
+        elif not open_ and now:
+            opened.remove(bundle)
+        self.settings["open_bundles"] = opened
         save_settings(self.settings)
         self.render_rail()
 
@@ -681,14 +714,21 @@ class App:
             text = text[:-1]
         return text.rstrip() + "…"
 
-    def _rail_row(self, parent, h: feed.Heading, s: feed.Setup) -> None:
-        """One setup on one line: name, ×runs, the goal's number, the change against the base."""
+    def _rail_row(self, parent, h: feed.Heading, s: feed.Setup, last: bool = False) -> None:
+        """One row on one line: name, ×runs, the goal's number, the change against the base.
+
+        A run inside an open bundle (s.parent) is indented under it with a tree line, and its
+        change is against the bundle's combined number.
+        """
         t = self.t
-        folder = s.folder
-        sel = folder in self.selected and not self.profile_key
+        key = s.key
+        child = s.parent is not None
+        sel = key in self.selected and not self.profile_key
         bg = "surface2" if sel else "background"
-        row = tk.Frame(parent, bg=t.c[bg], cursor="hand2")
-        row.pack(fill="x", pady=(0, 1))
+        # a 1px ring in the row's own colour: it turns yellow when a dragged row would land here
+        ring = {"highlightbackground": t.c[bg], "highlightcolor": t.c[bg]}
+        row = tk.Frame(parent, bg=t.c[bg], cursor="hand2", highlightthickness=1, **ring)
+        row.pack(fill="x", pady=(0, 0 if child else 1))
         edge = tk.Frame(row, width=2, bg=t.c["accent"] if sel else t.c[bg])
         edge.pack(side="left", fill="y")
         value_w, delta_w = self._rail_widths()
@@ -701,8 +741,28 @@ class App:
             widgets.append(lead)
             room -= lead.winfo_reqwidth() + px(8)
 
-        # right to left, so the name takes what's left and is cut with an ellipsis
+        # the tree: a chevron on a bundle, an indent with a guide line on its runs
         tall = t.fonts["mono_sm"].metrics("linespace")
+        gutter = tk.Frame(row, bg=t.c[bg], width=px(16), height=tall)
+        gutter.pack(side="left", padx=(px(6), 0))
+        gutter.pack_propagate(False)
+        widgets.append(gutter)
+        room -= px(22)
+        chev = None
+        if s.is_bundle:
+            opened = s.bundle in (self.settings.get("open_bundles") or [])
+            chev = self._chevron(gutter, not opened, bg)
+            chev.pack(side="left", pady=(px(3), 0))
+            chev.configure(cursor="hand2")
+        elif child:
+            guide = tk.Canvas(gutter, width=px(16), height=tall + px(14), bg=t.c[bg],
+                              highlightthickness=0, bd=0)  # fmt: skip
+            x0, mid = px(5), (tall + px(14)) // 2
+            line = t.c["border_visible"]
+            guide.create_line(x0, 0, x0, mid if last else tall + px(14), fill=line, width=1)
+            guide.create_line(x0, mid, px(13), mid, fill=line, width=1)
+            guide.place(x=0, y=-px(7))
+            room -= px(4)
 
         def cell(width: int, pad: tuple[int, int]) -> tk.Frame:
             box = tk.Frame(row, bg=t.c[bg], width=width, height=tall)
@@ -711,8 +771,16 @@ class App:
             widgets.append(box)
             return box
 
+        # right to left, so the name takes what's left and is cut with an ellipsis
         delta = cell(delta_w, (px(6), px(10)))
-        if s.status == "base":
+        if child:
+            out = s.status == "out"
+            text = "out" if out else s.change
+            label(delta, t, text, font="mono_xs", fg="warning" if out else "text3", bg=bg).pack(
+                side="right"
+            )
+            Lamp(delta, t, "warn" if out else "ok").pack(side="right", padx=(0, px(5)))
+        elif s.status == "base":
             silk(delta, t, "Base", bg=bg, fg="text3").pack(side="right")
         elif s.status == "na":
             label(delta, t, "n/a", font="mono_xs", fg="text4", bg=bg).pack(side="right")
@@ -723,56 +791,205 @@ class App:
             Lamp(delta, t, level).pack(side="right", padx=(0, px(5)))
         num, _unit = feed.metric_text(h.metric, s.value) if h.metric else ("---", "")
         value = cell(value_w, (px(4), 0))
-        label(
-            value, t, num, font="mono_sm", fg="text1" if s.value is not None else "text4", bg=bg
-        ).pack(side="right")
+        dim = s.value is None or (child and s.status == "out")
+        label(value, t, num, font="mono_sm", fg="text3" if dim else "text1", bg=bg).pack(
+            side="right"
+        )
         font = "body_sm" if s.kind == "label" else "mono_sm"  # keys and times are mono
         if s.count_text:  # ×3 right after the name; orange when runs disagree or one is out
-            odd = s.spread or len(s.used_runs) < s.count
+            odd = s.spread or len(s.used_runs) < s.count or bool(s.mixed)
             cnt = label(row, t, s.count_text, font="mono_xs", bg=bg,
                         fg="warning" if odd else "text3")  # fmt: skip
             room -= cnt.winfo_reqwidth() + px(6)
-        name = label(row, t, self._fit(s.name, font, room), font=font, bg=bg, anchor="w")
-        name.pack(side="left", padx=(px(10), 0), pady=px(7))
+        name = label(
+            row, t, self._fit(s.name, font, room), font=font, bg=bg, anchor="w",
+            fg="text2" if child else "text1",
+        )  # fmt: skip
+        name.pack(side="left", padx=(px(4), 0), pady=px(7))
         widgets.append(name)
         if s.count_text:
             cnt.pack(side="left", padx=(px(6), 0))
             widgets.append(cnt)
 
         def paint(hover: bool) -> None:
-            if sel:
+            if sel or self.drag:
                 return
             col = t.c["surface2" if hover else "background"]
             for wdg in widgets:
                 wdg.configure(bg=col)
-                for child in wdg.winfo_children():
-                    if not isinstance(child, Lamp):
-                        child.configure(bg=col)
+                for c in wdg.winfo_children():
+                    if not isinstance(c, Lamp):
+                        c.configure(bg=col)
             edge.configure(bg=col)
 
         for wdg in [*widgets, *(c for w in widgets for c in w.winfo_children())]:
-            wdg.bind("<Button-1>", lambda _e, f=folder: self.select(f, add=False))
-            wdg.bind("<Control-Button-1>", lambda _e, f=folder: self.select(f, add=True))
-            wdg.bind("<Shift-Button-1>", lambda _e, f=folder: self.select(f, add=True))
-            wdg.bind("<Double-1>", lambda _e, f=folder: _open(f))
+            if wdg is chev:
+                continue
+            wdg.bind("<ButtonPress-1>", lambda e, k=key: self._drag_start(e, k))
+            wdg.bind("<B1-Motion>", self._drag_move)
+            wdg.bind("<ButtonRelease-1>", self._drag_end)
+            wdg.bind("<Control-Button-1>", lambda _e, k=key: self.select(k, add=True))
+            wdg.bind("<Shift-Button-1>", lambda _e, k=key: self.select(k, add=True))
+            wdg.bind("<Double-1>", lambda _e, f=s.folder: _open(f))
             wdg.bind("<Button-3>", lambda e, hh=h, ss=s: self._row_menu(e, hh, ss))
             wdg.bind("<Enter>", lambda _e: paint(True), add="+")
             wdg.bind("<Leave>", lambda _e: paint(False), add="+")
+        if chev is not None:
+            chev.bind("<Button-1>", lambda _e, b=s.bundle: self.toggle_bundle(b))
+            chev.bind("<Button-3>", lambda e, hh=h, ss=s: self._row_menu(e, hh, ss))
+        self.drop_targets[row] = ("row", s, [row, edge])
+
+    # --- dragging rows: bundle, unbundle, move between groups ------------------------------------
+
+    def _drag_start(self, e, key: Path) -> None:
+        self.drag = {"key": key, "x": e.x_root, "y": e.y_root, "moving": False, "lit": None}
+
+    def _drop_target(self, x: int, y: int) -> tuple | None:
+        w = self.root.winfo_containing(x, y)
+        while w is not None:
+            if w in self.drop_targets:
+                return self.drop_targets[w]
+            w = getattr(w, "master", None)
+        return None
+
+    def _drag_move(self, e) -> None:
+        d = self.drag
+        if not d:
+            return
+        if not d["moving"]:
+            if abs(e.x_root - d["x"]) + abs(e.y_root - d["y"]) < px(6):
+                return
+            d["moving"] = True
+        target = self._drop_target(e.x_root, e.y_root)
+        if d["lit"] is not None and (target is None or target[1] is not d["lit"][0]):
+            self._light(None)
+        action = self.drop_action(d["key"], target) if target else None
+        if action and (d["lit"] is None or d["lit"][0] is not target[1]):
+            self._light(target)
+        hint = action[0] if action else "Drop on a run, a bundle or a heading"
+        self.count_label.configure(text=self._fit(hint, "mono_xs", px(180)), fg=self.t.c["text1"])
+
+    def _light(self, target: tuple | None) -> None:
+        """Show (or clear) where a dragged row would land: a 1px yellow ring around a row (the
+        focus colour), or a heading's name in yellow."""
+        d, t = self.drag, self.t
+        if d is None:
+            return
+        for w, opts in d.get("undo") or []:
+            try:
+                w.configure(**opts)
+            except tk.TclError:
+                pass
+        d["undo"], d["lit"] = [], None
+        if target is None:
+            return
+        kind, thing, parts = target
+        if kind == "heading":
+            for w in parts:
+                d["undo"].append((w, {"fg": w.cget("fg")}))
+                w.configure(fg=t.c["accent"])
+        else:
+            row = parts[0]
+            d["undo"].append((row, {"highlightbackground": row.cget("highlightbackground")}))
+            row.configure(highlightbackground=t.c["accent"])
+        d["lit"] = (thing,)
+
+    def _drag_end(self, e) -> None:
+        d, self.drag = self.drag, None
+        if not d:
+            return
+        if not d["moving"]:  # a click
+            self.select(d["key"], add=False)
+            return
+        target = self._drop_target(e.x_root, e.y_root)
+        action = self.drop_action(d["key"], target) if target else None
+        if action:
+            action[1]()
+        else:
+            self.render_rail()  # clears the highlight and the hint
+
+    def drop_action(self, key: Path, target: tuple | None):
+        """(what it does, do it) for dropping the row `key` on a target, or None.
+
+        On a run or a bundle of the same game: bundle them. On its own heading: take a run out
+        of its bundle. On another group's heading: move it there. On its game's heading: take it
+        out of its group. A bundle moves whole; a run dragged out of a bundle leaves it.
+        """
+        s = self.setups.get(key)
+        if s is None or target is None:
+            return None
+        kind, thing, _ = target
+        src = s.parent or s  # where the dragged row lives now
+        if kind == "row":
+            dst = thing.parent or thing
+            if dst is src or exe_of(dst) != exe_of(s):
+                return None
+            return (f"Bundle with {dst.name}", lambda: self.bundle_rows(s, dst))
+        h: feed.Heading = thing
+        names = feed.game_names(self.captures)
+        game = feed.game_of(s.runs[0][1], names)
+        here = s.heading == h.key
+        if here and s.parent is None:
+            return None
+        if here:
+            return ("Take out of the bundle", lambda: self._save_user(s.folders, bundle=None))
+        if h.custom:
+            return (f"Move to {h.title}", lambda: self._move_rows(s, h.title))
+        if h.key == f"game:{game}":
+            return (f"Out of the group, under {h.title}", lambda: self._move_rows(s, None))
+        return None
+
+    def bundle_rows(self, s: feed.Setup, dst: feed.Setup) -> None:
+        """Put a row's runs (a run, or a whole bundle) in another row's bundle."""
+        bundle = dst.bundle or dst.runs[0][0].name
+        group = summary.group(dst.runs[0][1])
+        folders = [f for f in dst.folders if dst.bundle is None] + s.folders
+        self._save_user(folders, bundle=bundle, group=group)
+        self.toggle_bundle(bundle, True)
+        found = next(
+            (r for h in self.feed for r in h.setups if r.bundle == bundle and r.is_bundle), None
+        )
+        if found:
+            self.select(found.key, add=False)
+
+    def unbundle(self, s: feed.Setup) -> None:
+        self._save_user(s.folders, bundle=None)
+
+    def _move_rows(self, s: feed.Setup, group: str | None) -> None:
+        """Move a row to a group (None: back under its game). A run leaves its bundle."""
+        if s.parent is not None:
+            self._save_user(s.folders, group=group, bundle=None)
+        else:
+            self._save_user(s.folders, group=group)
 
     def _row_menu(self, event, h: feed.Heading, s: feed.Setup) -> None:
         m = self._menu()
-        folder = s.folder
-        other = [f for f in self.selected if f != folder]
+        key, folder = s.key, s.folder
+        if s.parent is not None:  # a run inside a bundle
+            m.add_command(label="Open folder", command=lambda: _open(folder))
+            m.add_command(
+                label="Copy this run's report",
+                command=lambda: self._copy_report_of(folder, True),
+            )
+            m.add_separator()
+            m.add_command(label="Take out of the bundle", command=lambda: self.unbundle(s))
+            m.add_command(label="Delete this run…", command=lambda: self.ask_delete([folder]))
+            try:
+                m.tk_popup(event.x_root, event.y_root)
+            finally:
+                m.grab_release()
+            return
+        other = [k for k in self.selected if k != key]
         # with two rows selected and the click on one of them, group and delete act on both
         rows = [s]
-        if folder in self.selected:
-            rows = [self.setups[f] for f in self.selected if f in self.setups]
+        if key in self.selected:
+            rows = [self.setups[k] for k in self.selected if k in self.setups]
         targets = [f for r in rows for f in r.folders]
         many = f" ({len(targets)} runs)" if len(targets) > 1 else ""
         m.add_command(label="Open folder", command=lambda: _open(folder))
-        m.add_command(label="Copy report", command=lambda: self._copy_report_of(folder))
+        m.add_command(label="Copy report", command=lambda: self._copy_report_of(key))
         m.add_separator()
-        m.add_command(label="Rename…", command=lambda: self.rename_capture(folder))
+        m.add_command(label="Rename…", command=lambda: self.rename_capture(key))
         m.add_command(
             label="Set as base",
             command=lambda: self.set_base(h, s),
@@ -784,6 +1001,17 @@ class App:
             command=lambda: self.choose_settings(h, None if mine else s),
         )
         m.add_separator()
+        mate = self.setups.get(other[-1]) if other else None
+        mate = (mate.parent or mate) if mate else None
+        can = mate is not None and mate is not s and exe_of(mate) == exe_of(s)
+        m.add_command(
+            label=f"Bundle with {self._fit(mate.name, 'body_sm', px(200))}" if can else
+            "Bundle with selected",
+            command=lambda: self.bundle_rows(s, mate),
+            state="normal" if can else "disabled",
+        )  # fmt: skip
+        if s.is_bundle:
+            m.add_command(label="Unbundle", command=lambda: self.unbundle(s))
         sub = self._menu(m)
         for g in self.custom_groups():
             sub.add_command(label=g, command=lambda g=g: self.move_to_group(targets, g))
@@ -796,14 +1024,10 @@ class App:
             state="normal" if any(self._group_of(f) for f in targets) else "disabled",
         )
         m.add_cascade(label="Move to group", menu=sub)
-        if s.count > 1:
-            m.add_command(label="Split into single runs", command=lambda: self.split_setup(s))
-        if s.split:
-            m.add_command(label="Stack with the row below", command=lambda: self.join_setup(s))
         m.add_separator()
         m.add_command(
             label="Compare with selected",
-            command=lambda: self._compare_with(folder),
+            command=lambda: self._compare_with(key),
             state="normal" if other else "disabled",
         )
         m.add_separator()
@@ -858,26 +1082,31 @@ class App:
     def _rebuild_feed(self) -> None:
         goal, target = self.goal_and_target()
         self.feed = feed.build(self.captures, goal, target, self.settings.get("bases") or {})
-        self.setups = {f: s for h in self.feed for s in h.setups for f in s.folders}
-        sel: list[Path] = []
-        for f in self.selected:  # a run that joined a stack selects the stack
-            rep = self.setups[f].folder if f in self.setups else f
-            if rep not in sel:
-                sel.append(rep)
-        self.selected = sel[-2:]
+        self.setups = {}
+        for h in self.feed:
+            for s in h.setups:
+                self.setups[s.key] = s
+                for c in s.children:  # a bundle's runs, each selectable on its own
+                    self.setups[c.key] = c
+        self.selected = [k for k in self.selected if k in self.setups][-2:]
         if self.profile_key and not any(h.key == self.profile_key for h in self.feed):
             self.profile_key = None
 
-    def setup_for(self, folder: Path) -> feed.Setup | None:
-        return self.setups.get(folder)
+    def setup_for(self, key: Path) -> feed.Setup | None:
+        return self.setups.get(key)
 
     def heading_for(self, key: str) -> feed.Heading | None:
         return next((h for h in self.feed if h.key == key), None)
 
-    def view_for(self, folder: Path) -> dict:
-        """What a row stands for: the runs combined, or the one run."""
-        s = self.setups.get(folder)
-        return s.result if s else self.result_for(folder)
+    def view_for(self, key: Path) -> dict:
+        """What a row stands for: a bundle's runs combined, or the one run."""
+        s = self.setups.get(key)
+        return s.result if s else self.result_for(key)
+
+    def folder_of(self, key: Path) -> Path:
+        """A real folder for a row: a bundle's newest run."""
+        s = self.setups.get(key)
+        return s.folder if s else key
 
     def _pin(self, setting: str, key: str, s: feed.Setup | None) -> None:
         pins = dict(self.settings.get(setting) or {})
@@ -903,18 +1132,6 @@ class App:
     def _chosen_setup(self, h: feed.Heading) -> feed.Setup | None:
         name = (self.settings.get("chosen") or {}).get(h.key)
         return next((s for s in h.setups if name in {f.name for f in s.folders}), None)
-
-    def split_setup(self, s: feed.Setup) -> None:
-        """Every run of the setup becomes its own row."""
-        self._save_user([f for f, _ in s.runs[1:]], split="yes")
-
-    def split_run(self, s: feed.Setup, folder: Path) -> None:
-        """Take one run out of its stack: it, and the run after it, start new rows."""
-        i = s.folders.index(folder)
-        self._save_user(s.folders[i : i + 2] if i else s.folders[1:2], split="yes")
-
-    def join_setup(self, s: feed.Setup) -> None:
-        self._save_user([s.runs[0][0]], split=None)
 
     def open_profile(self, key: str) -> None:
         self.profile_key = key
@@ -955,18 +1172,20 @@ class App:
         if failed:
             self.show_note(f"Couldn't save {failed} of {len(folders)}.", "")
 
-    def rename_capture(self, folder: Path) -> None:
-        s = self.setup_for(folder)
+    def rename_capture(self, key: Path) -> None:
+        s = self.setup_for(key)
+        if s is not None and s.parent is not None:
+            s = s.parent  # a run inside a bundle: the bundle carries the name
         try:
-            result = self.result_for(folder)
+            result = s.result if s else self.result_for(key)
         except StopIteration:
             return
-        folders = s.folders if s else [folder]
+        folders = s.folders if s else [key]
         runs = f" ({len(folders)} runs)" if len(folders) > 1 else ""
         text = TextDialog.ask(
             self,
             f"Rename{runs}",
-            "A name for this setup, like the settings you changed. It shows in the list, the"
+            "A name for this row, like the settings you changed. It shows in the list, the"
             " report and comparisons. Leave it empty to name it after what changed.",
             (s.label if s else summary.label(result)) or "",
         )
@@ -998,6 +1217,7 @@ class App:
         if not folders:
             return
         setup = self.setup_for(folders[0])
+        setup = (setup.parent or setup) if setup else None
         if heading:
             what = f"all {len(folders)} captures in {heading}"
         elif len(folders) == 1:
@@ -1160,10 +1380,16 @@ class App:
             return
         elif result:
             s = self.setup_for(self.selected[-1])
+            sub = summary.subtitle(result)
+            if s and s.parent is not None:  # a run inside a bundle
+                i = s.parent.children.index(s) + 1
+                out = ", left out of the bundle" if s.status == "out" else ""
+                sub = f"Run {i} of {s.parent.count}{out} · {sub}"
+                s = s.parent
             self._header(
                 summary.initials(summary.name(result)),
                 s.name if s and s.kind in feed.NAMED else summary.title(result),
-                summary.subtitle(result),
+                sub,
                 summary.tags(result),
             )
         else:
@@ -1455,6 +1681,8 @@ class App:
             line = frame(chip, t, "surface1")
             line.pack(fill="x", padx=px(16))
             setup = self.setup_for(f)
+            if setup and setup.parent is not None and res.get("stack"):
+                setup = setup.parent  # the bundle, shown by its newest run's trace
             named = setup and setup.kind in feed.NAMED
             mono = setup and setup.kind in ("settings", "system")
             label(
@@ -2061,7 +2289,7 @@ class App:
         self.page_profile.to_top()
 
     def _fill_runs(self) -> None:
-        """A stack's runs on the Summary page: which count, and each one's numbers."""
+        """A bundle's runs on the Summary page: which count, and each one's numbers."""
         t = self.t
         p = self.runs_panel
         for child in p.winfo_children():
@@ -2116,7 +2344,16 @@ class App:
             RichText(
                 p, t,
                 "These runs disagree beyond run-to-run noise and none stands out. Run the scene"
-                " once more, or split them if something changed between them.",
+                " once more, or take a run out if something changed between them.",
+                fg="warning", bg="surface1",
+            ).pack(fill="x", padx=px(16), pady=(0, px(12)))  # fmt: skip
+        if s.mixed:
+            what = ", ".join(f"{k} {a} → {b}" for k, a, b in s.mixed[:3])
+            more = f" and {len(s.mixed) - 3} more" if len(s.mixed) > 3 else ""
+            RichText(
+                p, t,
+                f"Not the same in every run: {what}{more}. A bundle's numbers mean most when its"
+                " runs are repeats of one setup.",
                 fg="warning", bg="surface1",
             ).pack(fill="x", padx=px(16), pady=(0, px(12)))  # fmt: skip
         p.pack(fill="x", pady=(0, px(8)), before=self.low_row)
@@ -2128,7 +2365,10 @@ class App:
             label="Copy this run's report", command=lambda: self._copy_report_of(folder, True)
         )
         m.add_separator()
-        m.add_command(label="Take out of the stack", command=lambda: self.split_run(s, folder))
+        m.add_command(
+            label="Take out of the bundle",
+            command=lambda: self._save_user([folder], bundle=None),
+        )
         m.add_command(label="Delete this run…", command=lambda: self.ask_delete([folder]))
         try:
             m.tk_popup(event.x_root, event.y_root)
@@ -2620,13 +2860,8 @@ class App:
             self.traces.pop(folder, None)
             self.refresh_history(select=folder)
             self.set_status()
-            stack = self.setup_for(folder)
-            if stack and stack.count > 1:  # a repeat run: the report of the runs combined
-                self.shown_text = self.report_text(stack.result)
-                note = f"Report of {len(stack.used_runs)} runs combined copied to the clipboard."
-            else:
-                self.shown_text, note = p["report"], "Report copied to the clipboard."
-            self.copy_shown(note=note)
+            self.shown_text = p["report"]
+            self.copy_shown(note="Report copied to the clipboard.")
             self.kick_share()
         elif kind == "error":
             if self.sound_var.get():
@@ -2734,7 +2969,7 @@ class App:
 
     def open_selected(self) -> None:
         if self.selected:
-            _open(self.selected[-1])
+            _open(self.folder_of(self.selected[-1]))
         else:
             root = self.captures_root or capture.DEFAULT_ROOT
             root.mkdir(parents=True, exist_ok=True)
