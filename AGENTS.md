@@ -26,7 +26,7 @@ wrapping the PresentMon console 2.6.0. MIT. Alpha.
 
 ## 2. Current state (2026-11-27)
 
-- `main` has PR #11 (merged 2026-11-27). `pytest` on Linux: 143 pass, 6 skip (Tk and
+- `main` has PR #13 (merged 2026-11-27). `pytest` on Linux: 143 pass, 6 skip (Tk and
   Windows-only).
 - The captures list (`feed.py`): one row per run, named after what changed from the row
   before, measured against a base; each game has a profile page. Checked on Windows by Cursor
@@ -36,12 +36,17 @@ wrapping the PresentMon console 2.6.0. MIT. Alpha.
   repeats (`user.bundle` in `result.json`), a bundle opens as a tree of its runs, and rows drag
   out of bundles and between groups. Not checked on Windows yet: dragging with a real mouse,
   the tree at 125% and 150%.
+- Since PR #13, the rail reads as a tree (heading → runs and bundles → a bundle's runs), the
+  goal sits in the action row next to Copy instead of the rail, RECORDING folds, names wrap,
+  and the rail's width drags (280-640 px). Not checked on Windows yet: guide lines and chevrons
+  at 100%, 125% and 150%, clicking a bundle's chevron, the goal controls at narrow widths,
+  dragging the rail's edge, two- and three-line rows.
 - Live services: a Supabase inbox (project `frametrace`, eu-north-1) receives opt-in shared
   captures; a daily export (02:23 UTC) publishes them to `melle62/frametrace-data`; a weekly
   workflow (Mondays 04:41 UTC) opens a PR that updates the game skills' community-data tables.
 - Skills: `frametrace` (general, runs game studies) and `frametrace-cs2` (tested on one PC).
-- Not yet: game skills for DayZ and Forza Horizon 6, settings readers checked on a real Unreal
-  or Unity game, a packaged `.exe`.
+- Not yet: game skills for DayZ and Forza Horizon 6, a settings reader for Forza Horizon 6
+  (ForzaTech), settings readers checked on a real Unreal or Unity game, a packaged `.exe`.
 
 ## 3. Hard rules
 
@@ -76,12 +81,17 @@ CI, the tests and the PR template check most of these. Breaking one means the PR
 
 Melvin's standing decisions (follow them, don't re-argue them):
 
-- Skills change only from the daily shared data. Don't edit a skill with a finding from one
-  session; write it up and let Melvin decide.
+- Skills change only through a PR Melvin merges. Measured numbers come from the daily shared
+  data (`tools/aggregate.py`) or from runs Melvin names himself; research goes in tagged
+  "guide" with a link. Don't put your own finding from one session into a skill; write it up
+  and let Melvin decide.
 - CS2: never suggest Dynamic Shadows "Sun Only" (a competitive disadvantage). Keep Boost
   Player Contrast on.
 - Answers stay short: one code-fenced block, what to change and what the last change did.
 - The UI stays "elegantly simple". Collect all shared data; only trusted data reaches skills.
+- The goal stays out of the captures rail: it shapes the report for the AI, not the benchmark.
+- Users will keep Discord running: recommend Discord settings that cut its cost, each one
+  benchmarked first, instead of telling them to quit it.
 
 ## 4. Setup and commands (Windows, PowerShell)
 
@@ -169,7 +179,10 @@ OLED (primary) and a second monitor in portrait at 260 Hz, Windows 11 Home 26H2 
 debloated, memory integrity on), Python 3.15. On this debloated Windows, Python's HTTPS can fail
 certificate checks: downloads and uploads fall back to `curl.exe` (hashes still checked). The
 7800X3D's integrated Radeon shows up as a second GPU. CS2 is tested on FPSfrequency's FPS
-Benchmark workshop map and on Anubis Deathmatch.
+Benchmark workshop map and on Anubis Deathmatch. Discord's Hardware Acceleration caused CS2's
+hitchy runs (a hitch every ~105-110 ms; 1% low 229 FPS with Discord quit, 155 with it on, 214
+with Hardware Acceleration off). The Grok Bot window draws ~224 frames/s: close it while
+benchmarking.
 
 ## 9. Two AIs, one repo
 
@@ -207,8 +220,8 @@ checklist Melvin runs; code-only Windows work is tested on CI's `windows-latest`
 order:
 
 1. Windows checks of PRs: `pytest` (GUI tests included) on the dev PC's Python 3.15, then the
-   PR's "Not checked on Windows" list, reported in the PR. Open now: PR #11's list (dragging
-   with a real mouse, bundling the 7800X3D baselines again, the tree at 125% and 150%).
+   PR's "Not checked on Windows" list, reported in the PR. Open now: PR #11's and PR #13's
+   lists (section 2), plus bundling the 7800X3D baselines again.
 2. Labels, groups and delete to the Recycle Bin (`SHFileOperationW`) on Windows; the
    `TextDialog` title bar.
 3. The window on real hardware: light mode, 125% and 150% scaling, the Game tab, Compare with
@@ -220,17 +233,19 @@ order:
 7. Later: package as an `.exe` with PyInstaller (PresentMon, its notices, fonts, icon).
 
 **Claude:** the Windows queue above; review the Skills Bot's PRs; game studies for DayZ and
-Forza Horizon 6 with the general skill (Melvin does the runs); next engine readers; data checks
-after exports; the handover doc.
+Forza Horizon 6 with the general skill (Melvin does the runs); next engine readers (ForzaTech
+for FH6 first: the file and its menu map are in the Project doc `claude/frametrace-fh6-config.md`);
+data checks after exports; the handover doc.
 
 **Grok Bot, Research:** a daily digest of the shared dataset (06:10 Stockholm, after the export)
 and a weekly game-research run (Forza Horizon 6, then DayZ, then CS2 updates). Its "Not
 measured yet" run plans are Melvin's benchmark queue. Engine findings go to its Reader notes,
 which become per-engine settings readers here.
 
-**Grok Bot, Skills** (set up after the first FH6 log): one PR per game on `skills/`, after
-`tools/sync_skills.py --check` and `pytest`. Needs a token limited to this repo and a ruleset
-on `main` that requires a pull request.
+**Grok Bot, Skills:** one PR per game on `skills/` (branch `feature/skill-<slug>-<date>`),
+opened through a Cursor cloud agent after `tools/sync_skills.py --check` and `pytest`. Claude
+reviews it, then Melvin verifies and merges. A ruleset on `main` that requires a pull request
+should be in place.
 
 ## 11. Ideas, not decided
 
@@ -240,7 +255,9 @@ Don't build these without Melvin's go. Open an issue or ask.
   start/stop): the AI suggests a setting, the run is captured, results go into the app's data
   and are shared if sharing is on. Meant especially for games like DayZ with no good benchmark.
 - Typing or pasting in-game settings into Frametrace for games without a reader.
-- A capture note when hitches repeat at a steady interval (seen in CS2: one every ~105 ms).
+- A capture note when hitches repeat at a steady interval (seen in CS2: one every ~105 ms,
+  from Discord's Hardware Acceleration), and an app check that names other apps drawing frames
+  during a capture (already in PresentMon's CSV).
 - Pinning a base in Compare; showing scene correlation and a contributor's quality level.
 - Flagging an enabled integrated GPU; filtering cosmetic Source 2 `r_` convars.
 - The AI's answer as a styled card; skills that read a pasted "Frametrace profile" (PR #8).
