@@ -25,14 +25,13 @@ wrapping the PresentMon console 2.6.0. MIT. Alpha.
 
 ## 2. Current state (2026-11-27)
 
-- `main` is at PR #7 (`8436b8d`). `pytest` on Linux: 130 pass, 5 skip (Tk and Windows-only).
-- **PR #8 is open** (`feature/captures-feed`): the captures list becomes a feed of setups
-  (unchanged runs stack as `×3`), plus a game profile page. It changes `gui.py` (~700 lines),
-  `report.py`, `summary.py`, `tools/window_shots.py` and adds `feed.py`. Until Melvin merges
-  it, don't start other work on those files: base your branch on `feature/captures-feed` or
-  pick another task. Still to check on Windows: column widths at 125% and 150%, the right-click
-  menus, the real list with CS2 captures (the `CS2.EXE` heading should merge into
-  "Counter-Strike 2").
+- `main` has PR #8 (merged 2026-11-27). `pytest` on Linux: 142 pass, 6 skip (Tk and
+  Windows-only).
+- The captures list is a **feed of setups** (`feed.py`): unchanged runs stack as `×3`, a row is
+  named after what changed from the setup before, every row is measured against a base, and
+  each game has a profile page. Checked on Windows by Cursor (2026-11-27): the right-click
+  menus and the real CS2 list (no separate `CS2.EXE` heading). 125% and 150% were only
+  simulated in code; real Windows scaling is still part of task 3.
 - Live services: a Supabase inbox (project `frametrace`, eu-north-1) receives opt-in shared
   captures; a daily export (02:23 UTC) publishes them to `melle62/frametrace-data`; a weekly
   workflow (Mondays 04:41 UTC) opens a PR that updates the game skills' community-data tables.
@@ -117,7 +116,8 @@ comparisons → `summary` words the window → `gui` shows it.
 
 | Module | Job |
 |---|---|
-| `gui.py` | the window (2,400 lines, the main conflict hotspot) |
+| `gui.py` | the window (2,850 lines, the main conflict hotspot) |
+| `feed.py` | the captures list as a feed of setups (stacking, names, bases) and the game profile |
 | `theme.py`, `instruments.py` | design tokens; scope, readouts, lamps, buttons (`theme.px` scales for DPI) |
 | `summary.py` | window wording, goal verdicts, settings changes, names and groups |
 | `report.py` | the report as a prompt, checks, `result.json`, compare, answer templates |
@@ -200,8 +200,9 @@ How work moves between the three:
 
 **Cursor** (needs the PC), roughly in order:
 
-1. Check out `feature/captures-feed` (PR #8), run `pytest` (GUI tests included) on Python 3.15,
-   and go through its "not checked on Windows" list. Report what you find in the PR.
+1. Windows checks of open PRs (PR #8's was done on 2026-11-27): check out the branch, run
+   `pytest` (GUI tests included) on Python 3.15, go through its "Not checked on Windows" list
+   and report what you find in the PR.
 2. Labels, groups and delete to the Recycle Bin (`SHFileOperationW`) on Windows; the
    `TextDialog` title bar.
 3. The window on real hardware: light mode, 125% and 150% scaling, the Game tab, Compare with

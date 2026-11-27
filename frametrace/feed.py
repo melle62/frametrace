@@ -25,7 +25,7 @@ import statistics
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from frametrace import goals, quality, summary
+from frametrace import gamesettings, goals, quality, summary
 
 Capture = tuple[Path, dict]
 
@@ -83,12 +83,22 @@ def _settings(result: dict) -> list:
     return (result.get("game_settings") or {}).get("settings") or []
 
 
+def _as_read_today(result: dict) -> dict:
+    """The result with only the settings today's reader would still report."""
+    gs = result.get("game_settings") or {}
+    if not gs.get("settings"):
+        return result
+    reader = gs.get("reader") or ""
+    kept = [kv for kv in gs["settings"] if gamesettings.still_read(reader, kv[0], kv[1])]
+    return {**result, "game_settings": {**gs, "settings": kept}}
+
+
 def settings_changed(a: dict, b: dict) -> list[tuple[str, str, str]] | None:
-    """In-game settings that changed from a to b, as summary.settings_changes says, minus keys
-    only one of them has: a newer Frametrace reads or filters other keys (CS2's cpu_level was
-    dropped), which isn't something the user changed."""
-    changes = summary.settings_changes(a, b)
-    return None if changes is None else [c for c in changes if "-" not in (c[1], c[2])]
+    """In-game settings that changed from a to b, as summary.settings_changes says, leaving out
+    keys today's reader no longer reports: an older Frametrace read CS2's cpu_level, a newer one
+    filters it, which isn't something the user changed. A key only one run has still counts
+    when today's reader reads it (a Unity game writes a PlayerPrefs key once it's set)."""
+    return summary.settings_changes(_as_read_today(a), _as_read_today(b))
 
 
 def _display(result: dict) -> tuple:

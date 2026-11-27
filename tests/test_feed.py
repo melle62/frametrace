@@ -278,3 +278,13 @@ def test_keys_only_one_run_has_are_not_changes():
     first, three = h.oldest_first
     assert first.count == 2  # stacked: only cpu_level differs, and only one run has it
     assert three.name == "msaa_samples 4 → 2 +2 more"
+
+
+def test_a_key_only_the_newer_run_has_is_a_change_when_still_read():
+    """Some games write a setting only once it's set: a new key the reader still reads counts."""
+    old = run()
+    new = run(seed=2, settings={"fps_max": "200"})
+    [h] = feed.build(newest_first(old, new), AVG)
+    first, second = h.oldest_first
+    assert first.count == second.count == 1  # not stacked
+    assert second.name == "fps_max - → 200"
