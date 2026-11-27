@@ -15,7 +15,7 @@ Please don't post personal details there: to delete your data, use the button in
 
 When sharing is on, Frametrace sends every capture (the ones saved before you turned it on
 included), every comparison you open or copy, and a capture again when you change its label,
-group or "Changes suggested by". For each:
+group, benchmark or "Changes suggested by". For each:
 
 **A capture:**
 - The measurements: frame-time statistics and FPS per second, the CPU/GPU split, the display
@@ -29,7 +29,7 @@ group or "Changes suggested by". For each:
   Windows build, power plan, Game Mode, HAGS, memory integrity, windowed-game optimizations.
 - About the capture: its start time in UTC, its length, the PresentMon version, and how the
   game was picked.
-- What you typed: the capture's label and group, and who suggested the changes.
+- What you typed: the capture's label, group and benchmark, and who suggested the changes.
 - The PresentMon CSV, cut to the game's own rows (one row per frame), compressed.
 
 **A comparison:** which two captures, the goal, the verdict, how each metric changed, which

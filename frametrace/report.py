@@ -219,9 +219,23 @@ def run_label(r: dict) -> str | None:
     return (r.get("user") or {}).get("label") or None
 
 
+def benchmark(r: dict) -> str | None:
+    """The user's tag for the run's scene, e.g. "Mirage Benchmark"."""
+    return ((r.get("user") or {}).get("benchmark") or "").strip() or None
+
+
 def game_name(r: dict) -> str:
     g = r.get("game") or {}
     return g.get("name") or r["capture"]["app"]
+
+
+def _benchmark_line(a: dict, b: dict) -> list[str]:
+    ta, tb = benchmark(a), benchmark(b)
+    if not (ta or tb):
+        return []
+    if ta == tb:
+        return [f"Benchmark: {ta}"]
+    return [f"Benchmark: A {ta or 'none'} · B {tb or 'none'}"]
 
 
 def _runs_note(r: dict) -> str:
@@ -546,6 +560,7 @@ def render(r: dict, goal_key: str | None = None, target_fps: int | None = None) 
         f"Frametrace report · {game_name(r)} · {_when(cap.get('started'))} · {s['duration_s']:.1f} s analyzed"
         + (f" (first {an['skipped_start_s']:.0f} s skipped)" if an.get("skipped_start_s") else ""),
         f"Goal: {goal_title(goal, target)}",
+        *([f"Benchmark: {benchmark(r)}"] if benchmark(r) else []),
         *([f"Run: {run_label(r)}"] if run_label(r) else []),
         *stack_lines(r),
         "",
@@ -755,6 +770,7 @@ def compare(a: dict, b: dict, goal_key: str | None = None, target_fps: int | Non
         + f" · B (after): {_when(cb.get('started'))}"
         + (f' "{run_label(b)}"' if run_label(b) else "")
         + _runs_note(b),
+        *_benchmark_line(a, b),
         f"Goal: {goal_title(goal, target)}",
         "",
         "## Result for the goal",

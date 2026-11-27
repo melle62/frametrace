@@ -61,6 +61,11 @@ def label(result: dict) -> str | None:
     return (result.get("user") or {}).get("label") or None
 
 
+def benchmark(result: dict) -> str | None:
+    """The user's tag for the run's scene ("Mirage Benchmark"), if they gave one."""
+    return ((result.get("user") or {}).get("benchmark") or "").strip() or None
+
+
 def group(result: dict) -> str | None:
     """The group the user put this run in, if any."""
     return (result.get("user") or {}).get("group") or None
@@ -506,6 +511,12 @@ def compare_verdict(
     ca, cb = a["capture"], b["capture"]
     if ca.get("app") != cb.get("app"):
         notes.append(f"Different games: A is {name(a)}, B is {name(b)}.")
+    ba, bb = benchmark(a), benchmark(b)
+    if (ba or bb) and (ba or "").casefold() != (bb or "").casefold():
+        notes.append(
+            f"Different benchmarks: A is {ba or 'untagged'}, B is {bb or 'untagged'}."
+            " Compare runs of the same scene."
+        )
     da, db = a["analysis"]["stats"]["duration_s"], b["analysis"]["stats"]["duration_s"]
     if max(da, db) > 1.25 * min(da, db):
         notes.append(

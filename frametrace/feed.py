@@ -7,7 +7,10 @@ opens like a folder to show each run. A row is named after what changed from the
 it, unless the user named it.
 
 Every row is measured against a base: the oldest setup it can be compared with (same
-display, about the same length), unless the user pinned another. So a game with benchmark
+benchmark, display and about the same length), unless the user pinned another. The benchmark
+is the user's tag for the scene ("Mirage Benchmark", result.json user.benchmark): runs of
+another benchmark are another scene, so they get their own base and are named after the run
+of the same benchmark before them. So a game with benchmark
 runs and longer live-match runs has one base for each kind of run. A row shows how it does
 against its base for the goal, and says SAME when the difference is inside run-to-run noise.
 
@@ -21,7 +24,6 @@ Nothing here is game-specific, and nothing touches Tk.
 from __future__ import annotations
 
 import copy
-import itertools
 import statistics
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -30,7 +32,9 @@ from frametrace import gamesettings, goals, quality, summary
 
 Capture = tuple[Path, dict]
 
-NAMED = ("label", "settings", "system")  # setup kinds whose name says what the setup is
+# setup kinds whose name says what the setup is
+NAMED = ("label", "benchmark", "settings", "system")
+TYPED = ("label", "benchmark")  # kinds named in the user's own words (Plex Sans, not Mono)
 BUNDLE_MARK = "~bundle~"  # a bundle's key in the list: a path no capture folder can have
 LENGTH_RATIO = 1.25  # runs this far apart in length are another scene (as in compare notes)
 
@@ -129,9 +133,36 @@ def same_length(a: dict, b: dict) -> bool:
     return bool(la and lb) and max(la, lb) <= LENGTH_RATIO * min(la, lb)
 
 
+benchmark = summary.benchmark
+
+
+def same_benchmark(a: dict, b: dict) -> bool:
+    """Both untagged, or the same tag (case and spaces don't matter)."""
+    ta, tb = benchmark(a), benchmark(b)
+    return " ".join((ta or "").casefold().split()) == " ".join((tb or "").casefold().split())
+
+
+def benchmarks(captures: list[Capture]) -> list[str]:
+    """Every benchmark tag in the captures, as first typed, the newest used first."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for _, r in captures:  # newest first
+        tag = benchmark(r)
+        key = " ".join((tag or "").casefold().split())
+        if tag and key not in seen:
+            seen.add(key)
+            out.append(tag)
+    return out
+
+
 def comparable(a: dict, b: dict) -> bool:
-    """Same game, display and about the same length: the deltas mean something."""
-    return exe(a) == exe(b) and _display(a) == _display(b) and same_length(a, b)
+    """Same game, benchmark, display and about the same length: the deltas mean something."""
+    return (
+        exe(a) == exe(b)
+        and same_benchmark(a, b)
+        and _display(a) == _display(b)
+        and same_length(a, b)
+    )
 
 
 def metric_for(goal: goals.Goal, results: list[dict], target: int | None) -> str | None:
@@ -185,7 +216,7 @@ class Setup:
     runs: list[Capture]  # oldest first
     bundle: str | None = None  # the bundle id the user's runs share (result.json user.bundle)
     name: str = ""
-    kind: str = "time"  # label, settings, system, first or time: where the name came from
+    kind: str = "time"  # label, benchmark, settings, system, first, time: name source
     changes: list[tuple[str, str, str]] = field(default_factory=list)  # from the setup before
     used: list[bool] = field(default_factory=list)  # False: left out of the combined numbers
     spread: bool = False  # the runs disagree beyond noise and none could be left out
@@ -237,6 +268,10 @@ class Setup:
     @property
     def label(self) -> str | None:
         return next((summary.label(r) for _, r in self.runs if summary.label(r)), None)
+
+    @property
+    def benchmark(self) -> str | None:
+        return next((benchmark(r) for _, r in self.runs if benchmark(r)), None)
 
     @property
     def count_text(self) -> str:
@@ -307,7 +342,8 @@ def short_key(key: str, keys: list[str]) -> str:
 
 
 def _name(setup: Setup, before: Setup | None) -> None:
-    """Name a setup: the user's label, else what changed from the setup before."""
+    """Name a setup: the user's label, else what changed from the setup before (of the same
+    benchmark); the first run of a benchmark is named after it."""
     first, prev = setup.runs[0][1], before.runs[-1][1] if before else None
     if prev is not None:
         changes = settings_changed(prev, first) or []
@@ -317,6 +353,9 @@ def _name(setup: Setup, before: Setup | None) -> None:
         setup.changes, kind = [], "first"
     if setup.label:
         setup.name, setup.kind = setup.label, "label"
+        return
+    if prev is None and setup.benchmark:
+        setup.name, setup.kind = setup.benchmark, "benchmark"
         return
     setup.kind = kind
     if kind in ("settings", "system"):
@@ -337,6 +376,8 @@ def _differences(runs: list[Capture]) -> list[tuple[str, str, str]]:
         for change in (settings_changed(first, r) or []) + _system_changes(first, r):
             if change[0] not in {c[0] for c in out}:
                 out.append(change)
+        if not same_benchmark(first, r) and "Benchmark" not in {c[0] for c in out}:
+            out.append(("Benchmark", benchmark(first) or "none", benchmark(r) or "none"))
         if exe(first) != exe(r) and "Game" not in {c[0] for c in out}:
             out.append(("Game", first["capture"].get("app"), r["capture"].get("app")))
         if not same_length(first, r) and "Length" not in {c[0] for c in out}:
@@ -362,7 +403,7 @@ def assemble(captures: list[Capture], heading: str) -> list[Setup]:
         if b:
             bundles[b] = s
     for i, s in enumerate(setups):
-        _name(s, setups[i - 1] if i else None)
+        _name(s, previous(setups, i))
         if s.is_bundle:
             s.mixed = _differences(s.runs)
             s.children = [
@@ -371,6 +412,12 @@ def assemble(captures: list[Capture], heading: str) -> list[Setup]:
                 for run in s.runs
             ]  # fmt: skip
     return setups
+
+
+def previous(setups: list[Setup], i: int) -> Setup | None:
+    """The setup before setups[i] of the same benchmark: what its change is named after."""
+    here = setups[i].runs[0][1]
+    return next((o for o in reversed(setups[:i]) if same_benchmark(o.runs[-1][1], here)), None)
 
 
 def judge_runs(setup: Setup, metric: str | None, target: int | None) -> None:
@@ -613,7 +660,10 @@ def profile(
             if s.status == "better" and (best is base or _better(best.value, s.value, metric)):
                 best = s
     tested = []
-    for before, after in itertools.pairwise(setups):
+    for i, after in enumerate(setups):
+        before = previous(setups, i)
+        if before is None:
+            continue
         if after.kind == "time" and not after.changes:
             continue  # nothing changed that Frametrace or the user named
         if not comparable(before.result, after.result):

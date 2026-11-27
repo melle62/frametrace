@@ -759,7 +759,7 @@ One row is one run, or one **bundle**: runs the user put together by dragging on
 
 | Part | Treatment |
 |------|-----------|
-| Rail order | RECORDING (a silk section title with a chevron: it folds the set-once controls, hotkey, length, game, beep, sharing, and shows a mono summary `F10 · 30 s · auto` when folded; it unfolds on its own when the hotkey needs attention, `settings.json` `capture_open`), then the list, then the status lamps. No goal (section 37) and no spec plate (the System tab has it). The list gets the height |
+| Rail order | BENCHMARK (section 47: the scene the next captures are tagged with, always open), then RECORDING (a silk section title with a chevron: it folds the set-once controls, hotkey, length, game, beep, sharing, and shows a mono summary `F10 · 30 s · auto` when folded; it unfolds on its own when the hotkey needs attention, `settings.json` `capture_open`), then the list, then the status lamps. No goal (section 37) and no spec plate (the System tab has it). The list gets the height |
 | Rail width | A fifth of the screen (in 100% pixels), 320 to 440, so long run names get room on a big monitor. The rail's right edge is a 7px grip around the 1px `--border` rule (cursor: horizontal resize): drag it between 280 and 640 px (at most half the window), double-click for the default. Remembered in `settings.json` `rail_width`; names re-fit when the drag ends |
 | List header | Silk `CAPTURES` + run count in mono `--text4`; right: the column heads in silk `--text4`, the goal's metric with its unit (`AVERAGE FPS`, `1% LOW FPS`, `LATENCY MS`, `HITCHES %`) ending where the value column ends, and `VS BASE` over the change column. While a row is dragged, the heads give way to what the drop will do (mono `--text1`) |
 | Heading | The list's strongest line: 10px chevron (1.5px stroke, square caps, `--text3`; right when folded, down when open), click folds. The game or group name in Plex Sans Medium at body-sm (`group`), `--text1`, cut with an ellipsis; click opens the profile (section 46), and while it's shown the heading takes the selected treatment (`--surface2`, 2px `--accent` edge). Right: the row count in mono `--text4`, or the heading's own metric in silk when it differs from the list's column head (a game without Reflex markers under a latency goal). 16px above (4px for the first), 2px below |
@@ -773,8 +773,8 @@ One row is one run, or one **bundle**: runs the user put together by dragging on
 | ×N | Mono `--text3` right after the name, only for bundles; `×2/3` when a run was left out. Always quiet: a left-out run shows in the tree and the Runs panel, runs that differ in the Runs panel |
 | Value | The goal's first deciding metric, runs combined, mono `--text1`, right-aligned in a fixed column (its unit is in the column head) |
 | Change | Fixed column: lamp + mono `mono_xs` change against the row's base. The lamp carries the status (success better, warning worse, idle `SAME` inside run-to-run noise); the number stays `--text2` (`--text3` for `SAME`), never coloured, silk `BASE` on a base that other rows are measured against, `n/a` in `--text4`, empty when nothing is measured against it |
-| Base | Each row's base is the oldest setup it can be compared with (same display, lengths within 25%), unless the user pinned one; a pin replaces the base of its own kind of run. So benchmark runs and long live-match runs each get a base |
-| Row menu | Open folder, Copy report / Rename…, Set as base, Use as my settings (or Stop using…) / Bundle with <the other selected row> (same game), Unbundle (bundles), Move to group ▸ / Compare with selected / Delete (N runs)… — rename, group and delete act on every run of the row (and of both rows when two are selected). A run inside a bundle: Open folder, Copy this run's report / Take out of the bundle, Delete this run…; Rename names its bundle |
+| Base | Each row's base is the oldest setup it can be compared with (same benchmark tag, same display, lengths within 25%), unless the user pinned one; a pin replaces the base of its own kind of run. So benchmark runs and long live-match runs each get a base |
+| Row menu | Open folder, Copy report / Rename…, Set as base, Use as my settings (or Stop using…) / Bundle with <the other selected row> (same game), Unbundle (bundles), Move to group ▸ / Compare with selected / Delete (N runs)… — rename, group and delete act on every run of the row (and of both rows when two are selected). Benchmark ▸ (section 47) sits under Move to group. A run inside a bundle: Open folder, Copy this run's report, Benchmark ▸ / Take out of the bundle, Delete this run…; Rename names its bundle |
 | Group menu | Open game profile / Rename group…, Ungroup (user groups) or Move all to a group… (games) / Delete all N captures… |
 | Keys | F2 renames the selected row, Delete asks to delete its runs, ↑ ↓ follow the rows as shown (folded headings skipped) |
 
@@ -870,4 +870,16 @@ Click a heading (or right-click › Open game profile): what the tests of that g
 | Changes tested | Lamp + name + change (mono, status colour) + `×a → ×b` runs, one row per change from a setup to the next that can be compared; newest first. Empty: an invitation to change one setting per run |
 | Settings | Section box of the best setup's in-game settings, every key in mono, `N read` right |
 | Notes | Captions in `--text3`: runs left out, setups of another kind of run with their own base |
+
+## 47. BENCHMARK TAG (rail, row menu)
+
+The scene a run benchmarked ("Mirage Benchmark", "Anubis DM"), in the user's words, saved as result.json `user.benchmark`. Runs of one benchmark are one kind of run: they share a base, and a row is named after the change from the run of the same benchmark before it. The first run of a benchmark is named after the tag.
+
+| Part | Value |
+|------|-------|
+| Field | Top of the rail, above RECORDING and never folded (it changes with the scene, the recording settings don't): key `Benchmark` in `--text2` in the rail's key column, then an editable select (section 3) in `--body-sm`, hint `e.g. Mirage Benchmark` in `--text4`. Its list: every tag a capture has, newest used first. Enter, picking, or leaving the field saves it (`settings.json` `benchmark`); a tag that matches an existing one apart from case takes that one's spelling. Empty: no tag |
+| Status line | When a tag is set: `Press F10 in game to start a 30 s capture of <tag>`, the tag in `--text1` |
+| Row name | The first run of a tag: the tag in Plex Sans `body_sm`, `--text1` (like a label). Header subtitle of a selected run: `<tag> · …` unless the title is the tag |
+| Row menu | Benchmark ▸ every tag (a ✓ on the tag all the row's runs share), New benchmark… (text dialog with the tags as choices), No benchmark |
+| Report | `Benchmark: <tag>` under `Goal:`; a comparison says `Benchmark: <tag>`, or `Benchmark: A <tag> · B <tag>` plus a note when they differ |
 

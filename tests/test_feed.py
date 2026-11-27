@@ -22,7 +22,7 @@ _minute = iter(range(10, 60))
 
 def run(
     ft=2.0, settings=None, ram=6000, label=None, named=True, n=None, seed=1, spikes=0,
-    bundle=None, group=None, settings_read=True,
+    bundle=None, group=None, settings_read=True, bench=None,
 ) -> tuple[Path, dict]:  # fmt: skip
     """One saved CS2 capture; each call is a minute after the one before."""
     rows = make_rows(n=n or int(12000 / ft), ft=ft, seed=seed, spikes_every=spikes)  # ~12 s
@@ -38,7 +38,8 @@ def run(
             "Source 2 video config", "cs2_video.txt", list(values.items())
         )
         r["game_settings"] = gs.to_dict()
-    user = {k: v for k, v in (("label", label), ("bundle", bundle), ("group", group)) if v}
+    fields = (("label", label), ("bundle", bundle), ("group", group), ("benchmark", bench))
+    user = {k: v for k, v in fields if v}
     if user:
         r["user"] = user
     return Path(f"/captures/20261127-13{m:02d}00-cs2"), r
@@ -371,3 +372,41 @@ def test_a_key_only_the_newer_run_has_is_a_change_when_still_read():
     [h] = feed.build(newest_first(old, new), AVG)
     _, second = h.oldest_first
     assert second.name == "fps_max - → 200"
+
+
+def test_each_benchmark_has_its_own_base_and_names_its_first_run():
+    old = run()  # from before benchmark tags: its own kind of run
+    m1 = run(bench="Mirage Benchmark")
+    a1 = run(bench="Anubis DM", ft=2.5)
+    m2 = run(bench="mirage  benchmark", settings={"msaa_samples": "2"})  # same tag, other case
+    a2 = run(bench="Anubis DM", ft=2.5, seed=2)
+    [h] = feed.build(newest_first(old, m1, a1, m2, a2), AVG)
+    rows = h.oldest_first
+    assert [(s.name, s.kind) for s in rows][1:3] == [
+        ("Mirage Benchmark", "benchmark"),
+        ("Anubis DM", "benchmark"),
+    ]
+    _, mirage, anubis, msaa, anubis2 = rows
+    assert msaa.name == "msaa_samples 4 → 2" and msaa.base is mirage  # named after Mirage's run
+    assert anubis2.base is anubis and anubis2.kind == "time"  # nothing changed since Anubis
+    assert rows[0].base is rows[0] and not feed.comparable(rows[0].result, mirage.result)
+    assert feed.benchmarks(newest_first(old, m1, a1, m2, a2)) == ["Anubis DM", "mirage  benchmark"]
+    p = feed.profile(h, AVG)
+    assert [t.name for t in p.tested] == ["msaa_samples 4 → 2"]  # no pair across benchmarks
+
+
+def test_a_bundle_of_two_benchmarks_is_mixed():
+    a = run(bench="Mirage Benchmark", bundle="b1")
+    b = run(bench="Anubis DM", seed=2, bundle="b1")
+    [h] = feed.build(newest_first(a, b), AVG)
+    [s] = h.setups
+    assert ("Benchmark", "Mirage Benchmark", "Anubis DM") in s.mixed
+
+
+def test_report_and_compare_name_the_benchmark():
+    a, b = run(bench="Mirage Benchmark")[1], run(bench="Anubis DM")[1]
+    assert "Benchmark: Mirage Benchmark" in report.render(a).splitlines()[:4]
+    text = report.compare(a, b)
+    assert "Benchmark: A Mirage Benchmark · B Anubis DM" in text
+    _, _, notes = summary.compare_verdict(a, b)
+    assert any(n.startswith("Different benchmarks") for n in notes)

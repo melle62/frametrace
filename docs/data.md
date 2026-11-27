@@ -31,7 +31,7 @@ Frametrace window ── share ──▶ inbox (Supabase, Stockholm)
   in UTC; `capture.other_presenters` becomes a count; `capture.foreground` becomes
   `foreground_is_game`; `game.window_title` and the CLI's `capture.source` go; `system.errors`
   becomes a count; then every string is scrubbed (user folders → `<user>`, e-mail addresses,
-  Steam IDs and `userdata\<id>` → `<account>`). Labels, groups, `user.bundle` (the bundle the user dragged a run
+  Steam IDs and `userdata\<id>` → `<account>`). Labels, groups, benchmark tags (`user.benchmark`, the scene the user named), `user.bundle` (the bundle the user dragged a run
   into in the captures list) and `user.advice` ("Changes suggested by" in Compare) are kept. `filtered_csv()` keeps the header and the rows of the
   game's process ID, gzipped, at most 50 MB.
 - **Comparisons.** Opening a pair in Compare (or copying its prompt) notes it.
