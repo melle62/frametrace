@@ -340,12 +340,11 @@ pairs, Dust Benchmark, 1 person).
   costs). Then Model / Texture Detail, Shader Detail. Then Global Shadow Quality one
   step, never below Medium. Medium → Low gave +3.2% avg and −3.4% PC latency (community, 1
   person; see Measured costs), which isn't worth the visibility cost at Low (see Visual
-  cost). Then resolution or FSR. Guide percentages (and these
-  settings at 1280 × 960) are in Guide costs. The MSAA rows there are from None,
-  not one step (one step is smaller: guide A about +1.8% and +6.8%, guide B about +2.5%
-  and +7.0%). Don't touch Boost Player Contrast
-  or Dynamic Shadows; keep both on. Anisotropic 16X is near free — don't cut it. When
-  CPU-limited, video settings barely move it; say so rather than cutting visuals.
+  cost). Then resolution or FSR. Guide percentages (and these settings at 1280 × 960) are
+  in Guide costs. The MSAA rows there are from None, not one step (one step is smaller:
+  guide A about +1.8% and +6.8%, guide B about +2.5% and +7.0%). Don't touch Boost Player
+  Contrast or Dynamic Shadows; keep both on. Anisotropic 16X is near free — don't cut it.
+  When CPU-limited, video settings barely move it; say so rather than cutting visuals.
 - **Higher 1% lows:** first check the run is clean. Two runs with the same settings came out
   hitchy (3–4% of the time in hitches, worst frames 15–20 ms) or clean (~0%); a hitchy "before"
   makes any change look great. Ask for a repeat when only one run is hitchy. Then the GPU-heavy
@@ -409,8 +408,7 @@ start/end cue, throw away the first pass after loading):
   2. Multisampling Anti-Aliasing Mode 2X → 4X MSAA (and 2X → CMAA2)
   3. Ambient Occlusion Disabled → High
   4. Global Shadow Quality High → Medium (and → Very High). Medium ↔ Low average and
-     GPU busy are measured (community, aggregate.py; see Measured costs). Still need a
-     Low-vs-Medium screenshot pair for the player-shadow-distance dispute
+     GPU busy are measured (community, aggregate.py; see Measured costs).
   5. Model / Texture Detail High → Medium
   6. Shader Detail High → Low
   7. Texture Filtering Mode Anisotropic 4X → 16X, and one Trilinear run to check guide A's
