@@ -257,8 +257,8 @@ One primary button per screen. In the desktop app it is **Start capture** (it be
 | Size | 16x16px |
 | Radius | 2px |
 | Border | 1px `--border-visible` |
-| Checked fill | `--accent` |
-| Checkmark | CSS shape, 2px `--on-accent` strokes, butt ends |
+| Checked fill | `--text1` (neutral: yellow is the trace, the primary button and focus only) |
+| Checkmark | CSS shape, 2px `--background` strokes, butt ends |
 | Label | `--body-sm`, 8px gap |
 
 ### Variants
@@ -742,14 +742,16 @@ Run-to-run noise bands (measured on CS2): average and median 1%, lows and P99 3%
 
 The select trigger's arrow is a `ti-chevron-down` drawn inside the field (`--text3`, `--text1` on hover), with no button, divider or border of its own. In Tk it is an image element in the combobox layout.
 
-## 37. GOAL SELECT (rail)
+## 37. GOAL SELECT (action row)
+
+The goal doesn't change a capture: it only shapes what the AI is asked. So it sits where that text is copied, not in the rail.
 
 | Property | Value |
 |----------|-------|
-| Place | First row of the rail's CAPTURE section, above Hotkey |
+| Place | The main column's action row, left of the Copy button: silk `GOAL`, the select, then a 1px `--border` rule 16px either side before Copy report / Copy comparison / Copy profile |
 | Goal | Read-only select (section 36 chevron), `--body-sm`: Higher average FPS, Higher 1% lows, Lower latency, Less stutter, Hit a target FPS |
-| Target | Second row, only for "Hit a target FPS": mono field (`--mono-sm`) with the unit `FPS` in `--text3` after it; placeholder `empty = refresh rate` in `--text4` mono |
-| Effect | The goal leads the summary verdict, the report and the compare verdict of whatever is shown, and is saved with the next capture |
+| Target | Right after the select, only for "Hit a target FPS": a 6-character mono field (`--mono-sm`) with the unit `FPS` in `--text3` after it; placeholder `Hz` in `--text4` mono (empty: the display's refresh rate) |
+| Effect | The report, the comparison and the profile (their text and the Compare verdict), and the list's metric column and changes against the base. The Summary verdict doesn't mention it: it says what limits the frame rate and which kind of setting moves it. Saved with the next capture |
 
 ## 38. CAPTURE LIST (rail pattern): a feed of setups
 
@@ -757,16 +759,20 @@ One row is one run, or one **bundle**: runs the user put together by dragging on
 
 | Part | Treatment |
 |------|-----------|
-| Heading | 10px chevron (1.5px stroke, square caps, `--text3`; right when folded, down when open) — click folds. Silk name — click opens the profile (section 46); `--text1` while its profile is shown, else `--text3` for a game, `--text2` for a group the user named. Right: the goal's metric as silk in `--text4` (`AVERAGE`, `1% LOW`, `LATENCY`, `HITCHES`, `AT TARGET`), or the row count in mono `--text4` when folded. 10px above, 4px below |
+| Rail order | RECORDING (a silk section title with a chevron: it folds the set-once controls, hotkey, length, game, beep, sharing, and shows a mono summary `F10 · 30 s · auto` when folded; it unfolds on its own when the hotkey needs attention, `settings.json` `capture_open`), then the list, then the status lamps. No goal (section 37) and no spec plate (the System tab has it). The list gets the height |
+| Rail width | A fifth of the screen (in 100% pixels), 320 to 440, so long run names get room on a big monitor. The rail's right edge is a 7px grip around the 1px `--border` rule (cursor: horizontal resize): drag it between 280 and 640 px (at most half the window), double-click for the default. Remembered in `settings.json` `rail_width`; names re-fit when the drag ends |
+| List header | Silk `CAPTURES` + run count in mono `--text4`; right: the column heads in silk `--text4`, the goal's metric with its unit (`AVERAGE FPS`, `1% LOW FPS`, `LATENCY MS`, `HITCHES %`) ending where the value column ends, and `VS BASE` over the change column. While a row is dragged, the heads give way to what the drop will do (mono `--text1`) |
+| Heading | The list's strongest line: 10px chevron (1.5px stroke, square caps, `--text3`; right when folded, down when open), click folds. The game or group name in Plex Sans Medium at body-sm (`group`), `--text1`, cut with an ellipsis; click opens the profile (section 46), and while it's shown the heading takes the selected treatment (`--surface2`, 2px `--accent` edge). Right: the row count in mono `--text4`, or the heading's own metric in silk when it differs from the list's column head (a game without Reflex markers under a latency goal). 16px above (4px for the first), 2px below |
 | Headings | One per game (captures that only know their exe join the game's heading when another capture of the same exe has the name), or per group the user made (right-click › Move to group) |
 | Order | Headings by their newest run; rows newest first, a bundle at its oldest run (so it doesn't jump when a run is added) |
-| Row | One line, 7px above and below: tree gutter, name, `×N`, value, change. Selected: `--surface2` plus the 2px `--accent` left edge; A / B in mono when two rows are compared; no selection while a profile is shown. A 1px ring in the row's own colour, turned `--accent` when a dragged row would land on it |
-| Tree | A 16px gutter before the name. A bundle shows the 10px chevron there (click opens or closes it, remembered in `settings.json` `open_bundles`). Its runs follow, newest first, `--text2` names (the capture time), with a 1px `--border-visible` guide line and tick in the gutter (the last run's line stops at its tick), no gap between them. A run's change column: success lamp + its difference from the bundle's number in `--text3` (`0.0%`, `-1.2%`), or warning lamp + `out` when it's left out of the bundle's numbers (its value in `--text3`) |
+| Tree | Three levels, one 16px step each, like a layers panel. A heading (game or group) at the left edge; its rows, single runs and bundles alike, one step in; an open bundle's runs one more step in. A row's gutter carries a 1px `--border-visible` guide under the chevron of each level above it (the heading's, then the bundle's), unbroken from row to row; a bundle's run adds a tick from its bundle's guide to its name, and the last run's guide stops at its tick. A bundle's chevron sits at its own step, under the heading's name; a single run leaves that slot empty, so names at one level line up |
+| Row | A 28px row, taller for a long name: gutter (6px + 16px per level + a chevron's 10px and 8px), name, `×N`, value, change. The chevron, tick, `×N` and both number columns line up with the name's first line. Selected: `--surface2` plus the 2px `--accent` left edge; A / B in mono when two rows are compared; no selection while a profile is shown. A dragged row's landing spot gets a 1px `--accent` ring laid over the row's edges (no layout shift, guides unbroken) |
+| Bundle's runs | Click a bundle's chevron (or its slot) to open it, remembered in `settings.json` `open_bundles`. Its runs follow, newest first, names and values in `--text3`. A run's change column: its difference from the bundle's number in `--text3` (`0.0%`, `-1.2%`), no lamp; or warning lamp + `out` in `--text2` when it's left out of the bundle's numbers |
 | Drag | Press and move 6px to drag a row (a click still selects). Drop on a run or bundle of the same game: bundle them (a bundle moves whole; the target bundle opens and is selected). Drop a bundle's run on its own heading: take it out of the bundle. Drop on a group's heading: move it there (a run leaves its bundle). Drop on its game's heading from a group: back under its game. The target shows the yellow ring (rows) or a yellow name (headings); the CAPTURES header says what the drop does (`Bundle with Baseline`, `Move to Map`, `Take out of the bundle`) in `--text1` mono, or `Drop on a run, a bundle or a heading` |
-| Name | The user's label (Plex Sans `body_sm`), else what changed from the setup before in Plex Mono: `shadow_quality 2 → 1` (a key namespace three or more keys share is dropped: `videocfg_`, `sg.`), `+N more` for more changes (keys today's reader no longer reads, like CS2's `cpu_level`, are not changes; a key only the newer run has is: `fps_max - → 200`), `RAM speed 4800 → 5600 MT/s` for a system change, else the capture time (`26 Nov 22:11`). Cut with an ellipsis to the room left |
-| ×N | Mono `--text3` right after the name, only for bundles. `×2/3` when a run was left out; `--warning` when one was left out, the runs disagree (`spread`) or they don't share settings, system, game or length |
-| Value | The goal's first deciding metric, runs combined, mono `--text1`, right-aligned in a fixed column (no unit: the heading names it) |
-| Change | Fixed column: lamp + mono `mono_xs` change against the row's base (`+7.5%` success, `-1.3%` warning), `SAME` with the idle lamp inside run-to-run noise, silk `BASE` on a base that other rows are measured against, `n/a` in `--text4`, empty when nothing is measured against it |
+| Name | Three tones: a name that says what the row is (`--text1`), a time (`--text2`), a run inside a bundle (`--text3`). The user's label (Plex Sans `body_sm`), else what changed from the setup before in Plex Mono: `shadow_quality 2 → 1` (a key namespace three or more keys share is dropped: `videocfg_`, `sg.`), `+N more` for more changes (keys today's reader no longer reads, like CS2's `cpu_level`, are not changes; a key only the newer run has is: `fps_max - → 200`), `RAM speed 4800 → 5600 MT/s` for a system change, else the capture time (`26 Nov 22:11`). A long name wraps instead of being cut: up to three lines for the user's own names (benchmark names often carry the settings), two for the rest. A change wraps only between its key and its values (`msaa_samples` / `4 → 2`). Only when that isn't enough is it shortened: a change drops its old value (`shadow_quality → 1`), then `+2 more` becomes `+2`, then the last line ends with an ellipsis. The header always shows the full name |
+| ×N | Mono `--text3` right after the name, only for bundles; `×2/3` when a run was left out. Always quiet: a left-out run shows in the tree and the Runs panel, runs that differ in the Runs panel |
+| Value | The goal's first deciding metric, runs combined, mono `--text1`, right-aligned in a fixed column (its unit is in the column head) |
+| Change | Fixed column: lamp + mono `mono_xs` change against the row's base. The lamp carries the status (success better, warning worse, idle `SAME` inside run-to-run noise); the number stays `--text2` (`--text3` for `SAME`), never coloured, silk `BASE` on a base that other rows are measured against, `n/a` in `--text4`, empty when nothing is measured against it |
 | Base | Each row's base is the oldest setup it can be compared with (same display, lengths within 25%), unless the user pinned one; a pin replaces the base of its own kind of run. So benchmark runs and long live-match runs each get a base |
 | Row menu | Open folder, Copy report / Rename…, Set as base, Use as my settings (or Stop using…) / Bundle with <the other selected row> (same game), Unbundle (bundles), Move to group ▸ / Compare with selected / Delete (N runs)… — rename, group and delete act on every run of the row (and of both rows when two are selected). A run inside a bundle: Open folder, Copy this run's report / Take out of the bundle, Delete this run…; Rename names its bundle |
 | Group menu | Open game profile / Rename group…, Ungroup (user groups) or Move all to a group… (games) / Delete all N captures… |
@@ -853,7 +859,7 @@ Under the readouts, when the selected row is a bundle: which runs count and each
 
 ## 46. GAME PROFILE (main column)
 
-Click a heading (or right-click › Open game profile): what the tests of that game add up to, for the rail's goal. No tabs; the action row's first button becomes Copy profile, a text block for the AI (`feed.profile_text`).
+Click a heading (or right-click › Open game profile): what the tests of that game add up to, for the goal picked in the action row (section 37). No tabs; the Copy button becomes Copy profile, a text block for the AI (`feed.profile_text`).
 
 | Part | Value |
 |------|-------|

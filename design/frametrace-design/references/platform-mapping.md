@@ -310,7 +310,7 @@ def apply(root, c=DARK):
     root.option_add("*TCombobox*Listbox.selectBackground", c["surface2"])
 ```
 
-Tk point sizes (`TYPE` in `frametrace/theme.py`): label 8 pt, caption 9, body-sm 10, body 11, subheading 13, heading 20, readout 22, display 30. At 96 DPI a point is 1.33 px, and Tk scales points with the monitor's DPI; heading and readout sit a step below the web sizes because a desktop window is read closer than a web page.
+Tk point sizes (`TYPE` in `frametrace/theme.py`): label 8 pt, caption 9, body-sm 10 (and `group`, body-sm at Plex Sans Medium for the captures list's headings), body 11, subheading 13, heading 20, readout 22, display 30. At 96 DPI a point is 1.33 px, and Tk scales points with the monitor's DPI; heading and readout sit a step below the web sizes because a desktop window is read closer than a web page.
 
 ### Spacing & Radius Constants
 

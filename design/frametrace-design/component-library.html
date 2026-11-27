@@ -232,9 +232,9 @@
     .chev { color: var(--text3); font-size: 16px; }
     .select.is-open .chev { transform: rotate(180deg); }
     .check-box { width: 16px; height: 16px; border: 1px solid var(--border-visible); border-radius: var(--radius-element); background: var(--background); position: relative; flex-shrink: 0; }
-    .check-box.is-checked, .check-box.is-indeterminate { background: var(--accent); border-color: var(--accent); }
-    .check-box.is-checked::after { content: ""; position: absolute; left: 4px; top: 3px; width: 7px; height: 4px; border-left: 2px solid var(--on-accent); border-bottom: 2px solid var(--on-accent); transform: rotate(-45deg); }
-    .check-box.is-indeterminate::after { content: ""; position: absolute; left: 3px; top: 6px; width: 8px; height: 2px; background: var(--on-accent); }
+    .check-box.is-checked, .check-box.is-indeterminate { background: var(--text1); border-color: var(--text1); }
+    .check-box.is-checked::after { content: ""; position: absolute; left: 4px; top: 3px; width: 7px; height: 4px; border-left: 2px solid var(--background); border-bottom: 2px solid var(--background); transform: rotate(-45deg); }
+    .check-box.is-indeterminate::after { content: ""; position: absolute; left: 3px; top: 6px; width: 8px; height: 2px; background: var(--background); }
     .check-box.is-hover { border-color: var(--text3); }
     .check-box.is-disabled { background: var(--surface1); border-color: var(--border); }
     .opt { display: inline-flex; align-items: center; gap: 8px; font-size: var(--text-body-sm); color: var(--text1); }

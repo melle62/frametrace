@@ -583,6 +583,14 @@ SETTINGS_HINT = {
 }
 
 
+def plain_verdict(result: dict) -> tuple[str, str]:
+    """(headline, sentence) for the Summary panel: what limits the frame rate, and which kind
+    of setting moves it. No goal: the goal only shapes the text for the AI."""
+    head, sentence = verdict(result)
+    hint = SETTINGS_HINT.get(_limit(result), "")
+    return head, f"{sentence} {hint}".strip()
+
+
 def goal_verdict(result: dict, goal: goals.Goal, target: int | None) -> tuple[str, str]:
     """(headline, sentence) for the Summary panel, led by the chosen goal.
 

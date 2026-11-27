@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from test_analysis_report import make_rows, result_for
 
-from frametrace import feed, game, gamesettings, goals, report, summary
+from frametrace import feed, game, gamesettings, goals, report, summary, theme
 
 CS2 = game.GameInfo(exe="cs2.exe", name="Counter-Strike 2", name_source="steam", engine="Source 2")
 VIDEO = [
@@ -318,6 +318,35 @@ def test_window_bundles_by_drag_and_shows_the_profile(tk_root, tmp_path, monkeyp
     assert "Your settings" in app.shown_text
     app.select(a2, add=False)  # a row leaves the profile
     assert app.profile_key is None and app.tabs.winfo_manager()
+
+    # the rail: the recording settings fold away with a one-line summary
+    assert not app.capture_more.winfo_manager()
+    assert app.fold_sum.cget("text") == "F10 · 30 s · auto"
+    app.toggle_capture_settings()
+    assert app.capture_more.winfo_manager() and app.fold_sum.cget("text") == ""
+    app.toggle_capture_settings()
+    assert theme.untrack(app.col_value.cget("text")) == "AVERAGE FPS"
+    app.move_to_group([b], None)  # back after a2 under the game: named after its change
+    msaa = app.setups[b]  # a long change keeps its new value when cut
+    font = app.t.fonts["mono_sm"]
+    assert app._row_name(msaa, "mono_sm", 1000) == "msaa_samples 4 → 2"
+    tight = font.measure("msaa_samples → 2")
+    assert app._row_name(msaa, "mono_sm", tight) == "msaa_samples → 2"
+    assert app._row_name(msaa, "mono_sm", tight - font.measure("xxxx")).endswith("… → 2")
+    # a long name wraps instead of being cut: a change breaks between its key and its values
+    assert app._row_lines(msaa, "mono_sm", 1000) == ["msaa_samples 4 → 2"]
+    two = max(font.measure("msaa_samples"), font.measure("4 → 2"))
+    assert app._row_lines(msaa, "mono_sm", two) == ["msaa_samples", "4 → 2"]
+    msaa.name, msaa.kind = "Discord HW acceleration off, overlay off, FG on", "label"
+    sans = app.t.fonts["body_sm"]
+    lines = app._row_lines(msaa, "body_sm", sans.measure("Discord HW acceleration"))
+    assert lines[0] == "Discord HW acceleration" and " ".join(lines).endswith("FG on")
+    # the rail is as wide as the user drags it, and remembers it
+    app.set_rail_width(500)
+    assert app.rail_w == theme.px(500)
+    assert json.loads((tmp_path / "settings.json").read_text())["rail_width"] == 500
+    app.set_rail_width(None)  # double-click: the default again
+    assert "rail_width" not in json.loads((tmp_path / "settings.json").read_text())
     app.on_close()
 
 
