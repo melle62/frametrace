@@ -324,10 +324,20 @@ class App:
         key_w = px(12) + max(
             t.fonts["body_sm"].measure(w) for w in ("Hotkey", "Length", "Game", "Benchmark")
         )
-        # the benchmark changes with the scene, so it stays out of the fold: type one, or pick
-        # a tag an earlier capture got; the next captures carry it
+        fold = tk.Frame(sec, bg=t.c["background"], cursor="hand2")
+        fold.pack(fill="x")
+        self.fold_chev = frame(fold, t, width=px(10), height=px(10))
+        self.fold_chev.pack(side="left", padx=(0, px(8)))
+        fold_name = silk(fold, t, "Recording")
+        fold_name.pack(side="left")
+        self.fold_sum = label(fold, t, "", font="mono_xs", fg="text3", anchor="e")
+        self.fold_sum.pack(side="right")
+        for w in (fold, self.fold_chev, fold_name, self.fold_sum):
+            w.bind("<Button-1>", lambda _e: self.toggle_capture_settings())
+        # the benchmark is the one recording setting that changes with the scene: it stays open
+        # under RECORDING's title while the rest folds. Type one, or pick a tag a capture has
         bench = frame(sec, t)
-        bench.pack(fill="x", pady=(0, px(10)))
+        bench.pack(fill="x", pady=(px(8), 0))
         bench.columnconfigure(0, minsize=key_w)
         bench.columnconfigure(1, weight=1)
         label(bench, t, "Benchmark", fg="text2").grid(row=0, column=0, sticky="w")
@@ -342,17 +352,9 @@ class App:
         self.benchmark_box.bind("<<ComboboxSelected>>", lambda _e: self.apply_benchmark())
         self.benchmark_box.bind("<Return>", lambda _e: self.apply_benchmark())
         self.benchmark_box.bind("<FocusOut>", lambda _e: self.apply_benchmark(), add="+")
-        placeholder(self.benchmark_box, t, self.benchmark_var, "e.g. Mirage Benchmark")
-        fold = tk.Frame(sec, bg=t.c["background"], cursor="hand2")
-        fold.pack(fill="x")
-        self.fold_chev = frame(fold, t, width=px(10), height=px(10))
-        self.fold_chev.pack(side="left", padx=(0, px(8)))
-        fold_name = silk(fold, t, "Recording")
-        fold_name.pack(side="left")
-        self.fold_sum = label(fold, t, "", font="mono_xs", fg="text3", anchor="e")
-        self.fold_sum.pack(side="right")
-        for w in (fold, self.fold_chev, fold_name, self.fold_sum):
-            w.bind("<Button-1>", lambda _e: self.toggle_capture_settings())
+        placeholder(
+            self.benchmark_box, t, self.benchmark_var, "e.g. Mirage Benchmark", font="body_sm"
+        )
         self.capture_more = frame(sec, t)
         grid = frame(self.capture_more, t)
         grid.pack(fill="x", pady=(px(4), 0))
