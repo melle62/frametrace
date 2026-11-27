@@ -177,23 +177,27 @@ then paste the comparison.
 Most CS2 players trade looks freely but not **visibility**. Rank by what a change does to seeing
 opponents, not by how the game looks.
 - **Keep on:** Boost Player Contrast (guide: clearer outline of player models, near-zero cost;
-  guide A −0.1% avg; 78.6–83% of pros) and Dynamic Shadows **All** (guide: player shadows from
-  every light, not only the sun; they can show a player around a corner before the model is
-  visible; guide A / B −0.6% / −2% avg; 176/177 pro configs). Never suggest "Sun Only".
+  guide A −0.1% avg; guide P2: 78.6%; P3: 83%) and Dynamic Shadows **All** (guide: player
+  shadows from every light, not only the sun; they can show a player around a corner before
+  the model is visible; guide A / B −0.6% / −2% avg; guide P2: 176/177). Never suggest
+  "Sun Only".
 - **Global Shadow Quality:** guide: at Low, player shadows are drawn over a shorter distance.
   Prefer Medium over Low when cutting shadows; say it may cost visibility. Guides disagree:
-  A and prosettings say Low shows the same player shadows when Dynamic Shadows is All; pros
-  mostly run High (66–68%).
+  A and P1 say Low shows the same player shadows when Dynamic Shadows is All; pros mostly run
+  High (guide P2: 68.4%; P3: 66%; P4: 67.7%).
 - **Anti-aliasing:** less AA makes thin and distant edges shimmer. Guide A: without MSAA,
-  players behind grates (Vertigo catwalk) are hard to see. CMAA2 is the cheap option.
-- **Texture Filtering:** guide A (single source, NOTE): never Trilinear (1% low 284.7 → 266.1
-  and a stutter anomaly; A's text and table disagree on the 0.1% low). Anisotropic 2X–16X is
-  near free (guide A / B: −0.9% / −1%).
+  players behind grates (Vertigo catwalk) are hard to see. CMAA2 is cheap (guide A −1.1%) but
+  is not MSAA: the grate problem applies to it too. Guide A recommends 2X MSAA.
+- **Texture Filtering:** guide A, one run: Trilinear lowered the 1% low 284.7 → 266.1 while
+  the 0.1% low barely moved; prefer Anisotropic. Mention the single source in NOTE when you
+  suggest it. Guide A: Bilinear blurs distant heads; Anisotropic 2X is its recommended spot.
+  Anisotropic 2X–16X is near free (guide A / B: −0.9% / −1%).
 - **Resolution and FSR:** lower render resolution blurs distant models. Last resort.
 - **Particle Detail:** guide A: higher detail gives no visibility through HE or molotov
   effects, only clutter. Ambient Occlusion, Shader Detail and HDR mode: mostly looks.
-- **Pros (guide, popularity not a measured benefit):** V-Sync off 100%, Shader Low ~80%,
-  Particle Low 89%. Links and date (read 2026-11-27) are under Sources (A, B, P1–P4).
+- **Pros (guide, popularity not a measured benefit):** V-Sync off 100% (guide P2, P3 and P4),
+  Shader Low ~80% (guide P2: 79.2%; P4: 82.6%), Particle Low 89% (guide P4: 89.1%).
+  Links and date (read 2026-11-27) are under Sources (A, B, P1–P4).
 
 ## Settings map
 Frametrace reads `cs2_video.txt` from `Steam\userdata\<account>\730\local\cfg\` (the newest one
@@ -303,10 +307,14 @@ not measured (`aggregate.py`: 0 usable pairs).
 | Boost Player Contrast | Disabled → Enabled | −0.1% (A only) |
 
 ## By goal
-- **Higher average FPS** (GPU-limited, as on the reference PC): MSAA one step down or CMAA2,
-  Ambient Occlusion Disabled, Particle Detail Low first: together measured at −12% GPU time,
-  single costs unmeasured (guide A / B at 1280 × 960: 4X MSAA −5.6% / −12.2%, 8X −11.6% /
-  −17.9%, Particle Very High −9.6% / −10%, AO High −0.8% / −4.8%). Then Global Shadow Quality
+- **Higher average FPS** (GPU-limited, as on the reference PC): MSAA 4X → 2X first; CMAA2 or
+  None only as a later step, and say it costs visibility behind grates (guide A). Then Ambient
+  Occlusion Disabled and Particle Detail Low: together measured at −12% GPU time, single costs
+  unmeasured. One step of MSAA at 1280 × 960, guide A: 4X → 2X about +1.8% avg (924.7 → 941.0
+  FPS), 8X → 4X about +6.8% (865.6 → 924.7). Guide B, same steps: about +2.5% (865.5 → 887.5)
+  and about +7.0% (808.8 → 865.5). The 4X and 8X rows under Guide costs are from None, not one
+  step. Particle Very High −9.6% / −10% and AO High −0.8% / −4.8% (guide A / B, from Low /
+  Disabled). Then Global Shadow Quality
   one step (Very High is the big one: −10.2% / −22%; High −4.8% / −12.9%; visibility at Low,
   see above), then Model / Texture Detail (High −5.5% / −8.6%), Shader Detail (High −1.5% /
   −5.4%), HDR, then resolution or FSR. Don't touch Boost Player Contrast (guide A: −0.1%) or
@@ -316,9 +324,9 @@ not measured (`aggregate.py`: 0 usable pairs).
 - **Higher 1% lows:** first check the run is clean. Two runs with the same settings came out
   hitchy (3–4% of the time in hitches, worst frames 15–20 ms) or clean (~0%); a hitchy "before"
   makes any change look great. Ask for a repeat when only one run is hitchy. Then the GPU-heavy
-  changes above. Guide A (single source): Particle Detail High or Very High lowers 0.1% lows
-  in heavy utility (249.3 → 229.0 / 227.9); avoid Texture Filtering Trilinear (1% low 284.7
-  → 266.1). Reflex Off gave the highest present-to-present lows (202 vs 154 with Boost);
+  changes above. Guide A, one run: Particle Detail High or Very High lowers 0.1% lows
+  in heavy utility (249.3 → 229.0 / 227.9). Trilinear: see Texture Filtering above.
+  Reflex Off gave the highest present-to-present lows (202 vs 154 with Boost);
   CPU-side lows moved less (205 vs 191). Don't suggest `fps_max` to even out pacing: it paces
   single frames unevenly. An external limiter is unmeasured.
 - **Lower latency:** NVIDIA Reflex Enabled + Boost (measured best: median 7.25 → 6.30 ms, P95
@@ -330,13 +338,12 @@ not measured (`aggregate.py`: 0 usable pairs).
 - **Less stutter:** separate run state from settings first (clean vs hitchy runs, above), and
   throw away the first pass after loading the map. The regular ~4 ms frames on the benchmark map
   are the local server tick, not stutter (see below). Settings changes for stutter are
-  unmeasured beyond the combined change above. Guide A (single source, NOTE): never use
-  Texture Filtering Trilinear (1% low 284.7 → 266.1 and a stutter anomaly; A's text and table
-  disagree on the 0.1% low).
+  unmeasured beyond the combined change above. Trilinear: see Texture Filtering above.
 - **Hit a target FPS:** the target defaults to the monitor's refresh rate. When it's met with
   room, raise visibility-relevant settings first (Global Shadow Quality, MSAA; keep Dynamic
-  Shadows All and Boost Player Contrast on), then cheap looks (guide A / B: Anisotropic 16X,
-  Ambient Occlusion, HDR Quality, Shader Detail High each cost ≤~5% avg), then Particle
+  Shadows All and Boost Player Contrast on), then cheap looks (Anisotropic 16X, Ambient
+  Occlusion, HDR Quality, Shader Detail High: each 0.8–5.4% avg in guides A / B at 1280 × 960,
+  more when GPU-limited), then Particle
   Detail. When it isn't, use the average-FPS order above.
 
 ## Benchmark scene
@@ -372,14 +379,14 @@ start/end cue, throw away the first pass after loading):
   until two agree.
 - One change per run, back to baseline after each, in this order:
   1. Particle Detail Low → High (separates the combined −12% GPU-time change)
-  2. Multisampling Anti-Aliasing Mode 4X → 2X MSAA (and 2X → CMAA2)
+  2. Multisampling Anti-Aliasing Mode 2X → 4X MSAA (and 2X → CMAA2)
   3. Ambient Occlusion Disabled → High
   4. Global Shadow Quality High → Medium (and → Very High), plus a Low-vs-Medium
      screenshot pair for the player-shadow-distance dispute
   5. Model / Texture Detail High → Medium
   6. Shader Detail High → Low
-  7. Texture Filtering Mode Anisotropic 4X → 16X, and one Trilinear run to check the
-     guide's stutter claim
+  7. Texture Filtering Mode Anisotropic 4X → 16X, and one Trilinear run to check guide A's
+     1% low (284.7 → 266.1)
   8. High Dynamic Range Quality → Performance; FidelityFX Super Resolution Disabled →
      Quality
 - An external frame limiter (driver or RTSS) vs `fps_max`.
@@ -393,7 +400,8 @@ start/end cue, throw away the first pass after loading):
 - Frametrace captures and VProf output on the maintainer's PC, 2026-11-26 (`docs/presentmon.md`,
   section 6).
 - Guides (claims marked "guide"), all new links read 2026-11-27:
-  - A: https://github.com/9Erza/CS2-Optimization-Guide (7800X3D + RX 9070 XT, 1280 × 960)
+  - A: https://github.com/9Erza/CS2-Optimization-Guide (README tables; 7800X3D + RX 9070 XT,
+    1280 × 960)
   - B: https://bo3.gg/news/high-shadows-and-msaa-smoothing-reduce-your-fps-in-cs2 (9800X3D +
     RTX 5070, 1280 × 960)
   - P1: https://prosettings.net/guides/cs2-options/
