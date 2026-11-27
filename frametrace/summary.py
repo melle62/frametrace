@@ -66,6 +66,12 @@ def benchmark(result: dict) -> str | None:
     return ((result.get("user") or {}).get("benchmark") or "").strip() or None
 
 
+def same_benchmark(a: dict, b: dict) -> bool:
+    """Both untagged, or the same tag (case and spaces don't matter)."""
+    ta, tb = benchmark(a), benchmark(b)
+    return " ".join((ta or "").casefold().split()) == " ".join((tb or "").casefold().split())
+
+
 def group(result: dict) -> str | None:
     """The group the user put this run in, if any."""
     return (result.get("user") or {}).get("group") or None

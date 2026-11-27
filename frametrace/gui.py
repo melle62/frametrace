@@ -3011,9 +3011,31 @@ class App:
         threading.Thread(target=work, daemon=True).start()
 
     def note_comparison(self, fa: Path, fb: Path, copied: bool = False) -> None:
-        if self.sharing():
-            self.sharer.note_pair(fa, fb, self.goal_key(), self.target_fps(), copied=copied)
-            self.kick_share()
+        """Note the pair for sharing as the Compare view shows it: a bundle is its runs combined."""
+        if not self.sharing():
+            return
+        runs: list[tuple[list[Path] | None, str | None]] = [(None, None), (None, None)]
+        if len(self.selected) == 2:
+            sides = []
+            for key in self.selected:  # in compare_pair()'s order: the same stable sort
+                s = self.setup_for(key)
+                bundle = s is not None and s.parent is None and s.is_bundle
+                sides.append(
+                    (
+                        self.view_for(key)["capture"].get("started", ""),
+                        self.trace_folder(key),
+                        ([f for f, _ in s.used_runs], s.bundle) if bundle else (None, None),
+                    )
+                )
+            sides.sort(key=lambda x: x[0])
+            if [x[1] for x in sides] == [fa, fb]:
+                runs = [x[2] for x in sides]
+        (a_runs, a_bundle), (b_runs, b_bundle) = runs
+        self.sharer.note_pair(
+            fa, fb, self.goal_key(), self.target_fps(), copied=copied,
+            a_runs=a_runs, b_runs=b_runs, a_bundle=a_bundle, b_bundle=b_bundle,
+        )  # fmt: skip
+        self.kick_share()
 
     def ask_forget(self) -> None:
         self.confirm = (

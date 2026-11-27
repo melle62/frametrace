@@ -32,8 +32,8 @@ group, benchmark or "Changes suggested by". For each:
 - What you typed: the capture's label, group and benchmark, and who suggested the changes.
 - The PresentMon CSV, cut to the game's own rows (one row per frame), compressed.
 
-**A comparison:** which two captures, the goal, the verdict, how each metric changed, which
-settings changed, and whether you copied it for an AI.
+**A comparison:** which two captures (for a bundle, which of its runs), the goal, the verdict,
+how each metric changed, which settings changed, and whether you copied it for an AI.
 
 **With every upload:** a random ID that Frametrace created on your PC when you turned sharing
 on, and the Frametrace version. The ID isn't linked to your Windows account, your hardware or

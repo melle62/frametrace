@@ -37,7 +37,11 @@ Frametrace window ── share ──▶ inbox (Supabase, Stockholm)
 - **Comparisons.** Opening a pair in Compare (or copying its prompt) notes it.
   `comparison_bundle()` holds both capture IDs, the game, the goal and target, the goal's status
   and verdict, the notes, every delta (A, B, change, status), the settings changed, whether
-  they changed nothing yet results moved, the advice and whether it was copied.
+  they changed nothing yet results moved, the advice, whether it was copied, and each side's
+  benchmark tag. A side that is a bundle is shared as the Compare view showed it, its runs
+  combined: `a` / `b` is its newest run that counts, `a_runs` / `b_runs` every run that counts
+  (oldest first; `null` for a single run), and the comparison's ID uses `bundle.<bundle id>`
+  for that side.
 - **Sending.** `Sharer.sync()` runs on a worker thread after start, after each capture, after
   label, group, bundle and advice edits, and after a comparison is noted. For each capture and
   comparison it compares the SHA-256 of the bundle with what it sent last (`shared.json`) and
@@ -96,13 +100,14 @@ All of these are computed from the captures themselves, never from what a client
 | long enough | 2 | at least 30 s |
 | clean run | 2 | at most 1% of the time in hitches |
 | complete capture | 1 | PresentMon wasn't killed, at least 1,000 frames |
-| labelled | 1 | the user gave a label or a group |
+| labelled | 1 | the user gave a label, a group or a benchmark tag |
 | system read | 1 | CPU and GPU known |
 
 **A pair** (A, B) is *comparable* when it's the same game (and build, when both have one), the
 same system (CPU, main GPU and driver, RAM speed), the same display mode (primary display
-resolution and refresh, present mode), lengths within 10%, settings read in both, and the
-same scene: the per-second FPS curves correlate at r ≥ 0.8 over at least 10 s. A comparable
+resolution and refresh, present mode), lengths within 10%, settings read in both, the same
+benchmark tag (`user.benchmark`, case and spaces ignored; both untagged counts as the same), and
+the same scene: the per-second FPS curves correlate at r ≥ 0.8 over at least 10 s. A comparable
 pair is **usable for costs** when exactly one setting changed and both runs are clean; a
 **baseline** when nothing changed; an **agreeing baseline** when the average and 1% low also
 stayed inside run-to-run noise.
@@ -113,8 +118,17 @@ usable one-change pairs, and their captures average at least 60. Otherwise *cont
 
 ## 5. Into the skills (`tools/aggregate.py`)
 
-Pairs come from comparisons people opened and from consecutive captures of the same game by
-the same contributor. Only usable pairs from trusted contributors count, grouped by
+Pairs come from three places, all per contributor:
+
+- **Comparisons people opened**, with a bundled side combined from its `a_runs` / `b_runs`.
+- **Consecutive setups of the same game and benchmark.** A setup is a row of the captures list:
+  a single run, or a bundle (`user.bundle`) with its runs combined as the window combines them
+  (`feed.combine`, a run that disagrees with the rest beyond noise left out). A bundle whose
+  runs differ in settings, system, display, length or benchmark counts as its single runs.
+  Runs of another benchmark are another scene, so Mirage runs never pair with Dust runs.
+- **The runs inside each bundle**, one after another: repeats of one setup, so baselines.
+
+Only usable pairs from trusted contributors count, grouped by
 (setting, A value, B value). Per group, each contributor's runs are reduced to their median
 first, then the median across contributors goes in the table, so one prolific contributor
 can't outvote the rest. The table (between the `frametrace:community-data` markers in each
@@ -125,7 +139,7 @@ the AI how to weigh it (similar hardware and more people first).
 ```
 python tools/aggregate.py --data <checkout of the data branch>            # write the tables
 python tools/aggregate.py --data <checkout> --check                       # exit 1 if stale
-python tools/aggregate.py --data <checkout> --report                      # contributor levels
+python tools/aggregate.py --data <checkout> --report                      # levels, pairs per benchmark
 ```
 
 `.github/workflows/aggregate.yml` runs it every Monday and opens a PR when a table changed.
