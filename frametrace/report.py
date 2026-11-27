@@ -224,6 +224,34 @@ def game_name(r: dict) -> str:
     return g.get("name") or r["capture"]["app"]
 
 
+def _runs_note(r: dict) -> str:
+    st = r.get("stack")
+    return f" ({st['used']} runs combined)" if st else ""
+
+
+def stack_lines(r: dict) -> list[str]:
+    """For runs combined into one result (feed.combine): how many, and each run's numbers."""
+    st = r.get("stack")
+    if not st:
+        return []
+    used, n = st["used"], st["runs"]
+    left = f" ({n - used} left out: far from the others, beyond run-to-run noise)"
+    lines = [
+        (
+            f"Runs: {n} with the same settings, combined{left if used < n else ''}."
+            " Numbers below are the mean of the runs that count; per-second FPS is pooled."
+        )
+    ]
+    out = set(st.get("left_out") or [])
+    for name, started, nums in zip(st["folders"], st["started"], st["per_run"]):
+        lines.append(
+            f"- {_when(started)}: average {_f(nums.get('avg_fps'))} | 1% low {_f(nums.get('p1_fps'))}"
+            f" | 0.1% low {_f(nums.get('p01_fps'))} | hitches {_f(nums.get('spike_time_pct'), 2, '%')}"
+            + (" (left out)" if name in out else "")
+        )
+    return lines
+
+
 def goal_title(goal: goals.Goal, target: int | None) -> str:
     return f"{goal.label} ({target} FPS)" if target else goal.label
 
@@ -511,6 +539,7 @@ def render(r: dict, goal_key: str | None = None, target_fps: int | None = None) 
         + (f" (first {an['skipped_start_s']:.0f} s skipped)" if an.get("skipped_start_s") else ""),
         f"Goal: {goal_title(goal, target)}",
         *([f"Run: {run_label(r)}"] if run_label(r) else []),
+        *stack_lines(r),
         "",
         "## Task for the AI",
         *task_lines(r, goal, target),
@@ -714,8 +743,10 @@ def compare(a: dict, b: dict, goal_key: str | None = None, target_fps: int | Non
         f"Frametrace compare · {name}",
         f"A (before): {_when(ca.get('started'))}"
         + (f' "{run_label(a)}"' if run_label(a) else "")
+        + _runs_note(a)
         + f" · B (after): {_when(cb.get('started'))}"
-        + (f' "{run_label(b)}"' if run_label(b) else ""),
+        + (f' "{run_label(b)}"' if run_label(b) else "")
+        + _runs_note(b),
         f"Goal: {goal_title(goal, target)}",
         "",
         "## Result for the goal",

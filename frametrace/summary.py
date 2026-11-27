@@ -88,13 +88,17 @@ def rail_groups(captures: list[tuple]) -> list[tuple[str, bool, list[tuple]]]:
 def subtitle(result: dict) -> str:
     cap, an = result["capture"], result["analysis"]
     s = an["stats"]
+    st = result.get("stack")
     parts = [
         # a labelled run names its game here; otherwise the title is the game: show the exe
         *([name(result)] if label(result) else [cap["app"]] if name(result) != cap["app"] else []),
-        when(cap.get("started")),
-        f"{s['duration_s']:.1f} s analyzed",
-        f"{s['frames']:,} frames",
-    ]
+        *(
+            [f"{st['used']} runs combined" + (f", {st['runs'] - st['used']} left out" if st["used"] < st["runs"] else ""),
+             f"newest {when(cap.get('started'))}", f"{s['duration_s']:.0f} s each"]
+            if st
+            else [when(cap.get("started")), f"{s['duration_s']:.1f} s analyzed", f"{s['frames']:,} frames"]
+        ),
+    ]  # fmt: skip
     if an.get("skipped_start_s"):
         parts.append(f"first {an['skipped_start_s']:.0f} s skipped")
     return " · ".join(parts)

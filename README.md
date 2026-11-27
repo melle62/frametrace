@@ -101,12 +101,18 @@ against a pinned SHA-256). Recording needs administrator rights or membership in
 5. Change the 1–3 settings it suggests, capture the same scene again, select both captures and
    copy the comparison back into the same chat.
 
-Captures are saved in `Documents\Frametrace\captures` and listed on the left, grouped by game.
-<kbd>Ctrl</kbd>+click a second capture to compare the two. Right-click a capture to give it a label
-(like "MSAA 2x", which the report and comparisons then carry), move it into a group of your own
-(a test session, the setting you're tuning), open its folder, copy its report or delete it. Click
-a group's heading to fold it; right-click it to rename the group or delete its captures. Deleted
-captures go to the Recycle Bin.
+Captures are saved in `Documents\Frametrace\captures` and listed on the left as a feed of what
+you tested: one row per setup, under its game. Runs with nothing changed between them stack into
+one row (`×3`) and count as one result, the mean of the runs; a run far from the others is left
+out (`×2/3`). Each row is named after what changed (`shadow_quality 2 → 1`, `RAM speed 4800 →
+5600 MT/s`) unless you rename it, and shows the number for your goal and how it does against the
+base (the oldest comparable row, or the one you pin): `+7.5%`, `-1.3%`, or `SAME` inside run-to-run
+noise. <kbd>Ctrl</kbd>+click a second row to compare the two. Click a game's name for its
+**profile**: the best setup you've measured for your goal (or the one you chose with *Use as my
+settings*), how it differs from the base, and what each tested change did on your PC, with Copy
+profile for the AI. Right-click a row to rename it, set it as the base, split a stack, move it into
+a group of your own, open its folder, copy its report or delete it. Deleted captures go to the
+Recycle Bin.
 
 **Sharing (optional).** On first start the window asks whether to share your captures and
 comparisons with the open [Frametrace dataset](https://github.com/melle62/frametrace-data). It
@@ -123,8 +129,8 @@ delete what you shared at any time from the left rail. Details: [PRIVACY.md](PRI
 | <kbd>Ctrl</kbd>+<kbd>C</kbd> | copy the report (or the comparison) |
 | <kbd>Ctrl</kbd>+<kbd>Tab</kbd> | next tab: Summary, Report, Game, System, Compare |
 | <kbd>Ctrl</kbd>+<kbd>O</kbd> | open the capture's folder |
-| <kbd>F2</kbd> | label the selected capture |
-| <kbd>Delete</kbd> | delete the selected capture (asks first, goes to the Recycle Bin) |
+| <kbd>F2</kbd> | rename the selected row (every run in it) |
+| <kbd>Delete</kbd> | delete the selected row's runs (asks first, they go to the Recycle Bin) |
 
 Command line: `python -m frametrace report capture.csv` analyzes an existing PresentMon CSV,
 and `python -m frametrace compare before after` compares two saved captures. Both take

@@ -181,21 +181,6 @@ def test_scope_scales():
     assert instruments.nice_time_step(30) == 5
 
 
-@pytest.fixture
-def tk_root():
-    tk = pytest.importorskip("tkinter")
-    try:
-        root = tk.Tk()
-    except tk.TclError:
-        pytest.skip("no display")
-    root.withdraw()
-    yield root
-    try:
-        root.destroy()
-    except tk.TclError:
-        pass
-
-
 def test_window_smoke(tk_root, tmp_path, monkeypatch):
     from frametrace import gui, hotkey, presentmon, sysinfo
 
