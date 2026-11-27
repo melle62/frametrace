@@ -62,6 +62,7 @@ TYPE = {
     "body_sm": ("sans", 10),
     "caption": ("sans", 9),
     "label": ("sans_medium", 8),
+    "group": ("sans_medium", 10),  # a heading in the captures list: body-sm at 500
     "button": ("sans_semibold", 10),
     "mono": ("mono", 10),
     "mono_sm": ("mono", 9),

@@ -310,11 +310,12 @@ class Check(tk.Frame):
         c, b, s = self.t.c, self.box, self.size - 1
         b.delete("all")
         if self.var.get():
-            b.create_rectangle(0, 0, s, s, fill=c["accent"], outline=c["accent"])
+            # neutral, not yellow: yellow is the trace, the primary button and focus only
+            b.create_rectangle(0, 0, s, s, fill=c["text1"], outline=c["text1"])
             k = self.size / 16
             b.create_line(
                 4 * k, 8 * k, 7 * k, 11 * k, 12 * k, 5 * k,
-                fill=c["on_accent"], width=max(2, px(2)), capstyle="butt", joinstyle="miter",
+                fill=c["background"], width=max(2, px(2)), capstyle="butt", joinstyle="miter",
             )  # fmt: skip
         else:
             edge = c["text3"] if self.hover else c["border_visible"]

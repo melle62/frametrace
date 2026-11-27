@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from test_analysis_report import make_rows, result_for
 
-from frametrace import feed, game, gamesettings, goals, report, summary
+from frametrace import feed, game, gamesettings, goals, report, summary, theme
 
 CS2 = game.GameInfo(exe="cs2.exe", name="Counter-Strike 2", name_source="steam", engine="Source 2")
 VIDEO = [
@@ -318,6 +318,21 @@ def test_window_bundles_by_drag_and_shows_the_profile(tk_root, tmp_path, monkeyp
     assert "Your settings" in app.shown_text
     app.select(a2, add=False)  # a row leaves the profile
     assert app.profile_key is None and app.tabs.winfo_manager()
+
+    # the rail: the recording settings fold away with a one-line summary
+    assert not app.capture_more.winfo_manager()
+    assert app.fold_sum.cget("text") == "F10 · 30 s · auto"
+    app.toggle_capture_settings()
+    assert app.capture_more.winfo_manager() and app.fold_sum.cget("text") == ""
+    app.toggle_capture_settings()
+    assert theme.untrack(app.col_value.cget("text")) == "AVERAGE FPS"
+    app.move_to_group([b], None)  # back after a2 under the game: named after its change
+    msaa = app.setups[b]  # a long change keeps its new value when cut
+    font = app.t.fonts["mono_sm"]
+    assert app._row_name(msaa, "mono_sm", 1000) == "msaa_samples 4 → 2"
+    tight = font.measure("msaa_samples → 2")
+    assert app._row_name(msaa, "mono_sm", tight) == "msaa_samples → 2"
+    assert app._row_name(msaa, "mono_sm", tight - font.measure("xxxx")).endswith("… → 2")
     app.on_close()
 
 

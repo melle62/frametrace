@@ -49,6 +49,17 @@ METRIC_SHORT = {
 }
 
 _METRICS = {row[0]: row for _, rows in summary.COMPARE_GROUPS for row in rows}
+
+
+def metric_column(name: str | None) -> str:
+    """The list's column head for a metric, with its unit: "Average FPS", "Latency ms"."""
+    if not name:
+        return ""
+    short = METRIC_SHORT.get(name, name.upper()).capitalize()
+    unit = "%" if name == "Seconds at target" else _METRICS[name][3] if name in _METRICS else ""
+    return f"{short} {unit}".strip()
+
+
 # Stats that don't average: the longest frame stays the longest, per-second FPS is pooled.
 _MAX_KEYS = {"max_ms", "max_cpu_ms"}
 _POOLED_KEYS = {"second_fps"}

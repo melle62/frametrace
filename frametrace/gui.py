@@ -76,6 +76,7 @@ DEFAULTS = {
     "goal": goals.DEFAULT_GOAL,
     "target_fps": "",
     "collapsed": [],  # capture groups folded shut in the list
+    "capture_open": False,  # the recording settings (hotkey, length, game, beep) unfolded
     "bases": {},  # heading key -> a run of the setup the user pinned as that heading's base
     "chosen": {},  # heading key -> a run of the setup the user keeps as their settings
     "share": None,  # share captures with the dataset: None = not asked yet
@@ -303,47 +304,31 @@ class App:
         rail.pack(side="left", fill="y")
         rail.pack_propagate(False)
 
+        # recording settings are set once: they fold away under their own section title, with a
+        # one-line summary. (The goal isn't here: it only shapes the text for the AI, so it sits
+        # by the Copy button.)
         sec = frame(rail, t)
-        sec.pack(fill="x", padx=px(16), pady=(px(16), px(14)))
-        silk(sec, t, "Capture").pack(anchor="w", pady=(0, px(12)))
-        grid = frame(sec, t)
-        grid.pack(fill="x")
+        sec.pack(fill="x", padx=px(16), pady=(px(14), px(12)))
+        key_w = px(12) + max(
+            t.fonts["body_sm"].measure(w) for w in ("Hotkey", "Length", "Game")
+        )
+        fold = tk.Frame(sec, bg=t.c["background"], cursor="hand2")
+        fold.pack(fill="x")
+        self.fold_chev = frame(fold, t, width=px(10), height=px(10))
+        self.fold_chev.pack(side="left", padx=(0, px(8)))
+        fold_name = silk(fold, t, "Recording")
+        fold_name.pack(side="left")
+        self.fold_sum = label(fold, t, "", font="mono_xs", fg="text3", anchor="e")
+        self.fold_sum.pack(side="right")
+        for w in (fold, self.fold_chev, fold_name, self.fold_sum):
+            w.bind("<Button-1>", lambda _e: self.toggle_capture_settings())
+        self.capture_more = frame(sec, t)
+        grid = frame(self.capture_more, t)
+        grid.pack(fill="x", pady=(px(4), 0))
+        grid.columnconfigure(0, minsize=key_w)
         grid.columnconfigure(1, weight=1)
 
-        label(grid, t, "Goal", fg="text2").grid(
-            row=0, column=0, sticky="w", pady=px(4), padx=(0, px(12))
-        )
-        goal_box = ttk.Combobox(
-            grid,
-            textvariable=self.goal_var,
-            values=list(GOAL_LABELS),
-            state="readonly",
-            font=t.fonts["body_sm"],
-        )
-        goal_box.grid(row=0, column=1, sticky="ew", pady=px(4))
-        goal_box.bind("<<ComboboxSelected>>", lambda _e: self.apply_goal())
-        self.target_row = frame(grid, t)
-        self.target_row.grid(row=1, column=1, sticky="ew", pady=px(4))
-        target_label = label(grid, t, "Target", fg="text2")
-        target_label.grid(row=1, column=0, sticky="w", pady=px(4))
-        self.target_widgets = (target_label, self.target_row)
-        tentry = ttk.Entry(
-            self.target_row,
-            textvariable=self.target_var,
-            style="Mono.TEntry",
-            font=t.fonts["mono_sm"],
-            width=8,
-        )
-        tentry.pack(side="left", fill="x", expand=True, padx=(0, px(4)))
-        tentry.bind("<FocusOut>", lambda _e: self.apply_goal(), add="+")
-        tentry.bind("<Return>", lambda _e: self.apply_goal(), add="+")
-        placeholder(tentry, t, self.target_var, "empty = refresh rate")
-        label(self.target_row, t, "FPS", font="mono_sm", fg="text3").pack(side="left")
-        self._paint_target()
-
-        label(grid, t, "Hotkey", fg="text2").grid(
-            row=2, column=0, sticky="w", pady=px(4), padx=(0, px(12))
-        )
+        label(grid, t, "Hotkey", fg="text2").grid(row=0, column=0, sticky="w", pady=px(4))
         combo = ttk.Combobox(
             grid,
             textvariable=self.hotkey_var,
@@ -351,19 +336,19 @@ class App:
             width=12,
             font=t.fonts["mono_sm"],
         )
-        combo.grid(row=2, column=1, sticky="ew", pady=px(4))
+        combo.grid(row=0, column=1, sticky="ew", pady=px(4))
         combo.bind("<<ComboboxSelected>>", lambda _e: self.apply_hotkey())
         combo.bind("<Return>", lambda _e: self.apply_hotkey())
         combo.bind("<FocusOut>", lambda _e: self.apply_hotkey())
         self.hotkey_label = label(
             grid, t, "", font="caption", fg="warning", wraplength=px(190), justify="left"
         )
-        self.hotkey_label.grid(row=3, column=1, sticky="w", pady=(0, px(4)))
+        self.hotkey_label.grid(row=1, column=1, sticky="w", pady=(0, px(4)))
         self._show_hotkey_note()
 
-        label(grid, t, "Length", fg="text2").grid(row=4, column=0, sticky="w", pady=px(4))
+        label(grid, t, "Length", fg="text2").grid(row=2, column=0, sticky="w", pady=px(4))
         ln = frame(grid, t)
-        ln.grid(row=4, column=1, sticky="ew", pady=px(4))
+        ln.grid(row=2, column=1, sticky="ew", pady=px(4))
         Segmented(ln, t, [("Fixed", False), ("Manual", True)], self.manual_var, self.save).pack(
             side="left"
         )
@@ -377,21 +362,23 @@ class App:
         label(ln, t, "s", font="mono_sm", fg="text3").pack(side="left")
         self._paint_length()
 
-        label(grid, t, "Game", fg="text2").grid(row=5, column=0, sticky="w", pady=px(4))
+        label(grid, t, "Game", fg="text2").grid(row=3, column=0, sticky="w", pady=px(4))
         entry = ttk.Entry(
             grid, textvariable=self.process_var, style="Mono.TEntry", font=t.fonts["mono_sm"]
         )
-        entry.grid(row=5, column=1, sticky="ew", pady=px(4))
+        entry.grid(row=3, column=1, sticky="ew", pady=px(4))
         entry.bind("<FocusOut>", lambda _e: self.save(), add="+")
         entry.bind("<Return>", lambda _e: self.save(), add="+")
         placeholder(entry, t, self.process_var, "empty = auto-detect")
-        Check(sec, t, "Beep on start and stop", self.sound_var, self.save).pack(
-            anchor="w", pady=(px(12), 0)
+        Check(self.capture_more, t, "Beep on start and stop", self.sound_var, self.save).pack(
+            anchor="w", pady=(px(8), 0)
         )
         if self.sharer.available:
-            Check(sec, t, "Share captures with the dataset", self.share_var, self.apply_share).pack(
-                anchor="w", pady=(px(6), 0)
-            )
+            Check(
+                self.capture_more, t, "Share captures with the dataset", self.share_var,
+                self.apply_share,
+            ).pack(anchor="w", pady=(px(6), 0))  # fmt: skip
+        self._paint_capture_more()
 
         rule(rail, t).pack(fill="x")
         foot = frame(rail, t)
@@ -399,22 +386,67 @@ class App:
         self.foot = foot
         rule(rail, t).pack(side="bottom", fill="x")
 
+        # the list's header: CAPTURES and its count, then the column heads over the rows'
+        # value and change columns (right edges matched to the rows below)
         head = frame(rail, t)
-        head.pack(fill="x", padx=px(16), pady=(px(16), px(8)))
+        head.pack(fill="x", padx=(px(16), px(16)), pady=(px(16), px(4)))
         silk(head, t, "Captures").pack(side="left")
-        self.count_label = label(head, t, "", font="mono_xs", fg="text3")
-        self.count_label.pack(side="right")
+        self.count_label = label(head, t, "", font="mono_xs", fg="text4")
+        self.count_label.pack(side="left", padx=(px(6), 0))
+        _, delta_w = self._rail_widths()
+        self.col_delta_name = silk(head, t, "vs base", fg="text4")
+        # as wide as the rows' change column, or the head if that's wider; the value head
+        # then still ends where the rows' value column ends
+        wide = max(delta_w, self.col_delta_name.winfo_reqwidth())
+        self.col_pad = (max(0, px(10) - (wide - delta_w)), px(11))
+        self.col_delta_name.destroy()
+        tall = t.fonts["label"].metrics("linespace")
+        self.col_delta = frame(head, t, width=wide, height=tall)
+        self.col_delta.pack(side="right", padx=self.col_pad)
+        self.col_delta.pack_propagate(False)
+        self.col_delta_name = silk(self.col_delta, t, "vs base", fg="text4")
+        self.col_delta_name.pack(side="right")
+        self.col_value = silk(head, t, "", fg="text4")
+        self.col_value.pack(side="right")
+        self.drag_hint = label(head, t, "", font="mono_xs", fg="text1", anchor="e")
         self.list = ScrollFrame(rail, t)
         self.list.pack(fill="both", expand=True, padx=(px(8), px(2)))
 
-    def _paint_target(self) -> None:
+    def _capture_summary(self) -> str:
+        """The folded recording settings in one mono line: F10 · 30 s · auto."""
+        length = "manual" if self.manual_var.get() else f"{self.length_seconds()} s"
+        game = self.process_var.get().strip() or "auto"
+        return f"{self.hotkey_var.get() or '?'} · {length} · {self._fit(game, 'mono_xs', px(70))}"
+
+    def _paint_capture_more(self) -> None:
+        """Open the recording settings when asked, or when the hotkey needs attention."""
         try:
-            for w in self.target_widgets:
-                if self.goal_key() == "target":
-                    w.grid()
-                else:
-                    w.grid_remove()
-        except tk.TclError:
+            opened = bool(self.settings.get("capture_open")) or bool(self.hotkey_note[0])
+            for child in self.fold_chev.winfo_children():
+                child.destroy()
+            self._chevron(self.fold_chev, not opened, "background").pack()
+            if opened:
+                self.capture_more.pack(fill="x")
+                self.fold_sum.configure(text="")
+            else:
+                self.capture_more.pack_forget()
+                self.fold_sum.configure(text=self._capture_summary())
+        except (tk.TclError, AttributeError):
+            pass
+
+    def toggle_capture_settings(self) -> None:
+        self.settings["capture_open"] = not self.settings.get("capture_open")
+        save_settings(self.settings)
+        self._paint_capture_more()
+
+    def _paint_target(self) -> None:
+        """The target FPS field shows only for "Hit a target FPS" (empty: the refresh rate)."""
+        try:
+            if self.goal_key() == "target":
+                self.target_row.pack(side="left", after=self.goal_box)
+            else:
+                self.target_row.pack_forget()
+        except (tk.TclError, IndexError, AttributeError):
             pass
 
     def goal_key(self) -> str:
@@ -459,6 +491,37 @@ class App:
 
         actions = frame(main, t)
         actions.pack(side="bottom", fill="x", padx=gutter, pady=(px(10), px(16)))
+        # the goal only shapes what the AI is asked (the report, the comparison, the profile),
+        # so it's picked right where that text is copied
+        silk(actions, t, "Goal").pack(side="left", padx=(0, px(8)))
+        goal_box = ttk.Combobox(
+            actions,
+            textvariable=self.goal_var,
+            values=list(GOAL_LABELS),
+            state="readonly",
+            font=t.fonts["body_sm"],
+            width=max(len(g) for g in GOAL_LABELS),
+        )
+        goal_box.pack(side="left")
+        goal_box.bind("<<ComboboxSelected>>", lambda _e: self.apply_goal())
+        self.goal_box = goal_box
+        self.target_row = frame(actions, t)
+        tentry = ttk.Entry(
+            self.target_row,
+            textvariable=self.target_var,
+            style="Mono.TEntry",
+            font=t.fonts["mono_sm"],
+            width=6,
+        )
+        tentry.pack(side="left", padx=(px(8), px(4)))
+        tentry.bind("<FocusOut>", lambda _e: self.apply_goal(), add="+")
+        tentry.bind("<Return>", lambda _e: self.apply_goal(), add="+")
+        placeholder(tentry, t, self.target_var, "Hz")
+        label(self.target_row, t, "FPS", font="mono_sm", fg="text3").pack(side="left")
+        self.target_widgets = (self.target_row,)
+        self.goal_rule = rule(actions, t, vertical=True)
+        self.goal_rule.pack(side="left", fill="y", padx=px(16), pady=px(4))
+        self._paint_target()
         self.copy_btn = FlatButton(actions, t, "Copy report", self.copy_shown, "secondary")
         self.copy_btn.pack(side="left")
         self.folder_btn = FlatButton(actions, t, "Open folder", self.open_selected, "ghost")
@@ -612,7 +675,10 @@ class App:
         for child in inner.winfo_children():
             child.destroy()
         self._rebuild_feed()
-        self.count_label.configure(text=str(len(self.captures)), fg=t.c["text3"])
+        self.count_label.configure(text=str(len(self.captures)))
+        self.rail_metric = next((h.metric for h in self.feed if h.metric), None)
+        self.col_value.configure(text=track(feed.metric_column(self.rail_metric).upper()))
+        self._show_drag_hint(None)
         self.rail_order = []
         self.drop_targets: dict[tk.Widget, tuple] = {}
         if not self.captures:
@@ -624,9 +690,9 @@ class App:
             ).pack(anchor="w", pady=(px(2), 0))
         folded = set(self.settings.get("collapsed") or [])
         opened = set(self.settings.get("open_bundles") or [])
-        for h in self.feed:
+        for i, h in enumerate(self.feed):
             shut = h.title in folded
-            self._group_head(inner, h, shut)
+            self._group_head(inner, h, shut, first=i == 0)
             if shut:
                 continue
             for s in h.setups:
@@ -644,26 +710,31 @@ class App:
         sm, xs = self.t.fonts["mono_sm"], self.t.fonts["mono_xs"]
         return sm.measure("0000.0"), px(13) + xs.measure("-00.0%")
 
-    def _group_head(self, parent, h: feed.Heading, shut: bool) -> None:
-        """A heading: chevron (folds it), name (opens the game's profile), metric or count."""
+    def _group_head(self, parent, h: feed.Heading, shut: bool, first: bool = False) -> None:
+        """A heading: the list's strongest line. Chevron (folds it), the game or group name in
+        Plex Sans Medium (opens its profile, and looks selected while the profile is shown),
+        the row count in mono; the metric only when it differs from the list's column head."""
         t = self.t
         shown = self.profile_key == h.key
-        head = tk.Frame(parent, bg=t.c["background"], cursor="hand2")
-        head.pack(fill="x", pady=(px(10), px(4)))
-        chev = self._chevron(head, shut, "background")
-        chev.pack(side="left", padx=(px(10), px(8)))
-        name = silk(head, t, h.title, fg="text1" if shown else "text2" if h.custom else "text3")
-        name.pack(side="left")
-        if shut:
-            right = label(head, t, str(len(h.setups)), font="mono_xs", fg="text4")
+        bg = "surface2" if shown else "background"
+        head = tk.Frame(parent, bg=t.c[bg], cursor="hand2")
+        head.pack(fill="x", pady=(px(4) if first else px(16), px(2)))
+        edge = tk.Frame(head, width=2, bg=t.c["accent"] if shown else t.c[bg])
+        edge.pack(side="left", fill="y")
+        chev = self._chevron(head, shut, bg)
+        chev.pack(side="left", padx=(px(6), px(8)))
+        name = label(head, t, self._fit(h.title, "group", px(170)), font="group", bg=bg)
+        name.pack(side="left", pady=px(5))
+        own = h.metric and h.metric != getattr(self, "rail_metric", h.metric)
+        if own:  # this heading's runs can't show the list's metric (no Reflex markers, say)
+            right = silk(head, t, feed.metric_column(h.metric), bg=bg, fg="text4")
         else:
-            right = silk(head, t, feed.METRIC_SHORT.get(h.metric or "", (h.metric or "").upper()))
-            right.configure(fg=t.c["text4"])
-        right.pack(side="right", padx=(0, px(12)))
+            right = label(head, t, str(len(h.setups)), font="mono_xs", fg="text4", bg=bg)
+        right.pack(side="right", padx=(0, px(11)))
         chev.bind("<Button-1>", lambda _e, k=h.title: self.toggle_group(k))
-        for wdg in (head, name, right):
+        for wdg in (head, edge, name, right):
             wdg.bind("<Button-1>", lambda _e, k=h.key: self.open_profile(k))
-        for wdg in (head, chev, name, right):
+        for wdg in (head, edge, chev, name, right):
             wdg.bind("<Button-3>", lambda e, hh=h: self._group_menu(e, hh))
         self.drop_targets[head] = ("heading", h, [name])
 
@@ -705,6 +776,23 @@ class App:
         save_settings(self.settings)
         self.render_rail()
 
+    def _row_name(self, s: feed.Setup, font: str, width: int) -> str:
+        """A row's name cut to fit. A change keeps its new value: the old one goes first
+        ("shadow_quality → 1"), then "+2 more" shortens to "+2", then the key is cut."""
+        name = s.name
+        if self.t.fonts[font].measure(name) <= width or s.kind not in ("settings", "system"):
+            return self._fit(name, font, width)
+        left, arrow, right = name.partition(" → ")
+        if arrow:
+            key = left.rsplit(" ", 1)[0] if " " in left else left
+            for tail in (right, right.replace(" more", "")):
+                if self.t.fonts[font].measure(f"{key} → {tail}") <= width:
+                    return f"{key} → {tail}"
+            tail = right.replace(" more", "")
+            room = width - self.t.fonts[font].measure(f" → {tail}")
+            return f"{self._fit(key, font, room)} → {tail}"
+        return self._fit(name, font, width)
+
     def _fit(self, text: str, font: str, width: int) -> str:
         """Cut text to a pixel width with an ellipsis (Tk labels don't)."""
         f = self.t.fonts[font]
@@ -715,54 +803,62 @@ class App:
         return text.rstrip() + "…"
 
     def _rail_row(self, parent, h: feed.Heading, s: feed.Setup, last: bool = False) -> None:
-        """One row on one line: name, ×runs, the goal's number, the change against the base.
+        """One row on one line: tree, name, ×runs, the goal's number, the change against the base.
 
-        A run inside an open bundle (s.parent) is indented under it with a tree line, and its
-        change is against the bundle's combined number.
+        The tree: a heading's rows (single runs and bundles alike) sit one step in under it,
+        with a guide line under the heading's chevron; an open bundle's runs sit one more step
+        in, with a second guide under the bundle's chevron. A bundle's own chevron sits at its
+        step, under its heading's name, like a folder in a layers panel.
         """
         t = self.t
         key = s.key
         child = s.parent is not None
+        level = 2 if child else 1
         sel = key in self.selected and not self.profile_key
         bg = "surface2" if sel else "background"
-        # a 1px ring in the row's own colour: it turns yellow when a dragged row would land here
-        ring = {"highlightbackground": t.c[bg], "highlightcolor": t.c[bg]}
-        row = tk.Frame(parent, bg=t.c[bg], cursor="hand2", highlightthickness=1, **ring)
-        row.pack(fill="x", pady=(0, 0 if child else 1))
+        row = tk.Frame(parent, bg=t.c[bg], cursor="hand2")
+        row.pack(fill="x")
         edge = tk.Frame(row, width=2, bg=t.c["accent"] if sel else t.c[bg])
         edge.pack(side="left", fill="y")
         value_w, delta_w = self._rail_widths()
         widgets: list[tk.Widget] = [row]
-        room = px(296 - 10 - 2 - 10 - 10 - 6 - 4) - value_w - delta_w  # what the name may use
-        if sel and len(self.selected) == 2:
-            mark = "A" if s.trace_folder == self.compare_pair()[0][0] else "B"
-            lead = label(row, t, mark, font="mono_xs", fg="text1", bg=bg, width=1)
-            lead.pack(side="left", padx=(px(8), 0))
-            widgets.append(lead)
-            room -= lead.winfo_reqwidth() + px(8)
 
-        # the tree: a chevron on a bundle, an indent with a guide line on its runs
-        tall = t.fonts["mono_sm"].metrics("linespace")
-        gutter = tk.Frame(row, bg=t.c[bg], width=px(16), height=tall)
-        gutter.pack(side="left", padx=(px(6), 0))
-        gutter.pack_propagate(False)
+        # the gutter: one 16px step per level; guides at the chevron centres of the levels above
+        step, first = px(16), px(6)  # the heading's chevron starts 6px in
+        tall = max(t.fonts[f].metrics("linespace") for f in ("body_sm", "mono_sm"))
+        high = tall + px(12)  # a 28px row
+        gutter_w = first + step * level + px(18)  # then a chevron's width and an 8px gap
+        gutter = tk.Canvas(row, width=gutter_w, height=high, bg=t.c[bg], highlightthickness=0,
+                           bd=0)  # fmt: skip
+        gutter.pack(side="left")
         widgets.append(gutter)
-        room -= px(22)
-        chev = None
-        if s.is_bundle:
+        line = t.c["border_visible"]
+        for k in range(level):  # under the heading's chevron, then under the bundle's
+            x = first + px(5) + step * k
+            gutter.create_line(x, 0, x, high // 2 if (k == level - 1 and last) else high,
+                               fill=line, width=1)  # fmt: skip
+        if child:  # a tick from the bundle's guide to the run
+            x = first + px(5) + step
+            gutter.create_line(x, high // 2, gutter_w - px(2), high // 2, fill=line, width=1)
+        if s.is_bundle:  # its chevron at its own step, under the heading's name
             opened = s.bundle in (self.settings.get("open_bundles") or [])
-            chev = self._chevron(gutter, not opened, bg)
-            chev.pack(side="left", pady=(px(3), 0))
-            chev.configure(cursor="hand2")
-        elif child:
-            guide = tk.Canvas(gutter, width=px(16), height=tall + px(14), bg=t.c[bg],
-                              highlightthickness=0, bd=0)  # fmt: skip
-            x0, mid = px(5), (tall + px(14)) // 2
-            line = t.c["border_visible"]
-            guide.create_line(x0, 0, x0, mid if last else tall + px(14), fill=line, width=1)
-            guide.create_line(x0, mid, px(13), mid, fill=line, width=1)
-            guide.place(x=0, y=-px(7))
-            room -= px(4)
+            c, w, y0 = first + step + px(5), px(3), high // 2
+            pts = (
+                (c - 1, y0 - w, c + w - 1, y0, c - 1, y0 + w)
+                if not opened
+                else (c - w, y0 - 1, c, y0 + w - 1, c + w, y0 - 1)
+            )
+            gutter.create_line(*pts, fill=t.c["text3"], width=max(1, px(1.5)),
+                               capstyle="projecting")  # fmt: skip
+        if sel and len(self.selected) == 2:  # A and B on the heading's guide
+            mark = "A" if s.trace_folder == self.compare_pair()[0][0] else "B"
+            x = first + px(5)
+            gutter.create_rectangle(x - px(5), high // 2 - px(7), x + px(5), high // 2 + px(7),
+                                    fill=t.c[bg], outline="")  # fmt: skip
+            gutter.create_text(x, high // 2, text=mark, fill=t.c["text1"],
+                               font=t.fonts["mono_xs"])  # fmt: skip
+        chev = None
+        room = px(296 - 10 - 14 - 2 - 2) - gutter_w - value_w - px(4) - delta_w - px(16)
 
         def cell(width: int, pad: tuple[int, int]) -> tk.Frame:
             box = tk.Frame(row, bg=t.c[bg], width=width, height=tall)
@@ -773,39 +869,35 @@ class App:
 
         # right to left, so the name takes what's left and is cut with an ellipsis
         delta = cell(delta_w, (px(6), px(10)))
-        if child:
+        if child:  # a counted run: its difference from the bundle; a left-out one: a lamp
             out = s.status == "out"
-            text = "out" if out else s.change
-            label(delta, t, text, font="mono_xs", fg="warning" if out else "text3", bg=bg).pack(
-                side="right"
-            )
-            Lamp(delta, t, "warn" if out else "ok").pack(side="right", padx=(0, px(5)))
+            label(delta, t, "out" if out else s.change, font="mono_xs",
+                  fg="text2" if out else "text3", bg=bg).pack(side="right")  # fmt: skip
+            if out:
+                Lamp(delta, t, "warn").pack(side="right", padx=(0, px(5)))
         elif s.status == "base":
             silk(delta, t, "Base", bg=bg, fg="text3").pack(side="right")
         elif s.status == "na":
             label(delta, t, "n/a", font="mono_xs", fg="text4", bg=bg).pack(side="right")
-        elif s.status != "alone":
+        elif s.status != "alone":  # the lamp carries the status, the number stays neutral
             level = {"better": "ok", "worse": "warn"}.get(s.status, "idle")
-            fg = {"better": "success", "worse": "warning"}.get(s.status, "text3")
+            fg = "text3" if s.status == "same" else "text2"
             label(delta, t, s.change, font="mono_xs", fg=fg, bg=bg).pack(side="right")
             Lamp(delta, t, level).pack(side="right", padx=(0, px(5)))
         num, _unit = feed.metric_text(h.metric, s.value) if h.metric else ("---", "")
         value = cell(value_w, (px(4), 0))
-        dim = s.value is None or (child and s.status == "out")
+        dim = s.value is None or child
         label(value, t, num, font="mono_sm", fg="text3" if dim else "text1", bg=bg).pack(
             side="right"
         )
+        # what the user named or changed is text1; a time (nothing named) text2; a run text3
         font = "body_sm" if s.kind == "label" else "mono_sm"  # keys and times are mono
-        if s.count_text:  # ×3 right after the name; orange when runs disagree or one is out
-            odd = s.spread or len(s.used_runs) < s.count or bool(s.mixed)
-            cnt = label(row, t, s.count_text, font="mono_xs", bg=bg,
-                        fg="warning" if odd else "text3")  # fmt: skip
+        fg = "text3" if child else "text1" if s.kind in feed.NAMED else "text2"
+        if s.count_text:  # ×3 right after the name, quiet: the runs' trouble shows in the tree
+            cnt = label(row, t, s.count_text, font="mono_xs", bg=bg, fg="text3")
             room -= cnt.winfo_reqwidth() + px(6)
-        name = label(
-            row, t, self._fit(s.name, font, room), font=font, bg=bg, anchor="w",
-            fg="text2" if child else "text1",
-        )  # fmt: skip
-        name.pack(side="left", padx=(px(4), 0), pady=px(7))
+        name = label(row, t, self._row_name(s, font, room), font=font, bg=bg, anchor="w", fg=fg)
+        name.pack(side="left")
         widgets.append(name)
         if s.count_text:
             cnt.pack(side="left", padx=(px(6), 0))
@@ -822,10 +914,18 @@ class App:
                         c.configure(bg=col)
             edge.configure(bg=col)
 
+        def press(e, k=key) -> None:
+            # a bundle's chevron (in the gutter) opens it; anywhere else starts a click or drag
+            if e.widget is gutter and s.is_bundle and abs(e.x - (first + step + px(5))) <= px(9):
+                self.drag = None
+                self.toggle_bundle(s.bundle)
+                return
+            self._drag_start(e, k)
+
         for wdg in [*widgets, *(c for w in widgets for c in w.winfo_children())]:
             if wdg is chev:
                 continue
-            wdg.bind("<ButtonPress-1>", lambda e, k=key: self._drag_start(e, k))
+            wdg.bind("<ButtonPress-1>", press)
             wdg.bind("<B1-Motion>", self._drag_move)
             wdg.bind("<ButtonRelease-1>", self._drag_end)
             wdg.bind("<Control-Button-1>", lambda _e, k=key: self.select(k, add=True))
@@ -834,9 +934,6 @@ class App:
             wdg.bind("<Button-3>", lambda e, hh=h, ss=s: self._row_menu(e, hh, ss))
             wdg.bind("<Enter>", lambda _e: paint(True), add="+")
             wdg.bind("<Leave>", lambda _e: paint(False), add="+")
-        if chev is not None:
-            chev.bind("<Button-1>", lambda _e, b=s.bundle: self.toggle_bundle(b))
-            chev.bind("<Button-3>", lambda e, hh=h, ss=s: self._row_menu(e, hh, ss))
         self.drop_targets[row] = ("row", s, [row, edge])
 
     # --- dragging rows: bundle, unbundle, move between groups ------------------------------------
@@ -866,8 +963,23 @@ class App:
         action = self.drop_action(d["key"], target) if target else None
         if action and (d["lit"] is None or d["lit"][0] is not target[1]):
             self._light(target)
-        hint = action[0] if action else "Drop on a run, a bundle or a heading"
-        self.count_label.configure(text=self._fit(hint, "mono_xs", px(180)), fg=self.t.c["text1"])
+        self._show_drag_hint(action[0] if action else "Drop on a run, a bundle or a heading")
+
+    def _show_drag_hint(self, text: str | None) -> None:
+        """While a row is dragged, the column heads make room for what the drop will do."""
+        try:
+            if text:
+                self.col_value.pack_forget()
+                self.col_delta.pack_forget()
+                self.drag_hint.configure(text=self._fit(text, "mono_xs", px(190)))
+                self.drag_hint.pack(side="right")
+            else:
+                self.drag_hint.pack_forget()
+                if not self.col_delta.winfo_manager():
+                    self.col_delta.pack(side="right", padx=self.col_pad)
+                    self.col_value.pack(side="right")
+        except (tk.TclError, AttributeError):
+            pass
 
     def _light(self, target: tuple | None) -> None:
         """Show (or clear) where a dragged row would land: a 1px yellow ring around a row (the
@@ -880,7 +992,9 @@ class App:
                 w.configure(**opts)
             except tk.TclError:
                 pass
-        d["undo"], d["lit"] = [], None
+        for bar in d.get("bars") or []:
+            bar.destroy()
+        d["undo"], d["bars"], d["lit"] = [], [], None
         if target is None:
             return
         kind, thing, parts = target
@@ -888,10 +1002,17 @@ class App:
             for w in parts:
                 d["undo"].append((w, {"fg": w.cget("fg")}))
                 w.configure(fg=t.c["accent"])
-        else:
+        else:  # a 1px yellow ring laid over the row's edges (no layout shift, guides unbroken)
             row = parts[0]
-            d["undo"].append((row, {"highlightbackground": row.cget("highlightbackground")}))
-            row.configure(highlightbackground=t.c["accent"])
+            for place in (
+                {"x": 0, "y": 0, "relwidth": 1, "height": 1},
+                {"x": 0, "rely": 1, "y": -1, "relwidth": 1, "height": 1},
+                {"x": 0, "y": 0, "width": 1, "relheight": 1},
+                {"relx": 1, "x": -1, "y": 0, "width": 1, "relheight": 1},
+            ):
+                bar = tk.Frame(row, bg=t.c["accent"], bd=0, highlightthickness=0)
+                bar.place(**place)
+                d.setdefault("bars", []).append(bar)
         d["lit"] = (thing,)
 
     def _drag_end(self, e) -> None:
@@ -1289,12 +1410,6 @@ class App:
             Lamp(r, t, level).pack(side="left", padx=(0, px(8)))
             label(r, t, name, font="caption", fg="text2").pack(side="left")
             label(r, t, value, font="mono_xs", fg="text3").pack(side="right")
-        line = self.system_line()
-        if line:
-            label(
-                self.foot, t, line, font="mono_xs", fg="text3", wraplength=px(260),
-                justify="left", anchor="w",
-            ).pack(fill="x", pady=(px(8), 0))  # fmt: skip
         if self.sharer.available and self.sharer.has_shared:
             FlatButton(
                 self.foot, t, "Delete my shared data", self.ask_forget, "ghost", small=True
@@ -1505,8 +1620,7 @@ class App:
             self._paint_channels()
             return
 
-        goal, target = report.resolve_goal(result, self.goal_key(), self.target_fps())
-        head, sentence = summary.goal_verdict(result, goal, target)
+        head, sentence = summary.plain_verdict(result)
         self._set_verdict(head, sentence)
         b = result["analysis"]["bottleneck"]
         if b.get("available"):
@@ -2705,6 +2819,7 @@ class App:
                 self.hotkey_label.grid_remove()
         except tk.TclError:
             pass
+        self._paint_capture_more()
 
     def current_settings(self) -> capture.CaptureSettings:
         length = None if self.manual_var.get() else self.length_seconds()
@@ -2802,6 +2917,7 @@ class App:
             target_fps=self.target_fps() or "",
         )
         save_settings(self.settings)
+        self._paint_capture_more()
         if self.recorder is None or self.recorder.state == "idle":
             self.set_status()
             if not self.current_result():

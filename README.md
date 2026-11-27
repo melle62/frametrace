@@ -90,10 +90,11 @@ On first start the window offers to download PresentMon (Intel's free capture to
 against a pinned SHA-256). Recording needs administrator rights or membership in the
 "Performance Log Users" group, and the window offers both. Then:
 
-1. Pick your goal in the window (and a target FPS for "Hit a target FPS"; empty uses your
-   display's refresh rate).
+1. Pick your goal next to the Copy button (and a target FPS for "Hit a target FPS"; empty uses
+   your display's refresh rate). It only shapes what the report asks the AI: you can change it
+   after a run and copy again.
 2. Start a game, go to a repeatable scene (a benchmark mode, a replay, a fixed route) and press
-   <kbd>F10</kbd> (change it in the window). You'll hear a beep.
+   <kbd>F10</kbd> (change it under Recording in the window). You'll hear a beep.
 3. Play normally. Recording stops after the chosen length (`30 s` by default), or when you press
    <kbd>F10</kbd> again in manual mode.
 4. The result appears in the window, and the report is already on your clipboard. Paste it into
