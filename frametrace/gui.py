@@ -82,6 +82,7 @@ DEFAULTS = {
     "share": None,  # share captures with the dataset: None = not asked yet
 }
 LENGTHS = ["10", "20", "30", "60", "90", "100", "120", "180", "300"]
+RAIL_MIN, RAIL_MAX = 280, 640  # the rail's width range, 100% pixels
 TABS = ["Summary", "Report", "Game", "System", "Compare"]
 GOAL_LABELS = {g.label: g.key for g in goals.GOALS.values()}
 NOTE_MS = 2000  # how long a confirmation stays up
@@ -268,7 +269,7 @@ class App:
         body = frame(self.root, t)
         body.pack(fill="both", expand=True)
         self._build_rail(body)
-        rule(body, t, vertical=True).pack(side="left", fill="y")
+        self._build_sash(body)
         self._build_main(body)
         self.render_rail()
         self.render_setup()
@@ -298,11 +299,20 @@ class App:
             bar, t, [("Dark", "dark"), ("Light", "light")], self.theme_var, self.toggle_theme
         ).pack(side="right")
 
+    def default_rail_width(self) -> int:
+        """A fifth of the screen (in 100% pixels), within 320 to 440: long run names get room
+        on a big monitor without crowding a laptop."""
+        screen = self.root.winfo_screenwidth() / theme.SCALE
+        return int(max(320, min(440, screen * 0.2)))
+
     def _build_rail(self, body: tk.Frame) -> None:
         t = self.t
-        rail = frame(body, t, width=px(296))
+        logical = int(self.settings.get("rail_width") or self.default_rail_width())
+        self.rail_w = px(max(RAIL_MIN, min(RAIL_MAX, logical)))
+        rail = frame(body, t, width=self.rail_w)
         rail.pack(side="left", fill="y")
         rail.pack_propagate(False)
+        self.rail = rail
 
         # recording settings are set once: they fold away under their own section title, with a
         # one-line summary. (The goal isn't here: it only shapes the text for the AI, so it sits
@@ -411,6 +421,49 @@ class App:
         self.drag_hint = label(head, t, "", font="mono_xs", fg="text1", anchor="e")
         self.list = ScrollFrame(rail, t)
         self.list.pack(fill="both", expand=True, padx=(px(8), px(2)))
+
+    def _build_sash(self, body: tk.Frame) -> None:
+        """The rail's right edge: a 1px rule in a 7px grip. Drag it to widen the list (long run
+        names need it), double-click for the default width. The width is remembered."""
+        t = self.t
+        sash = tk.Frame(body, bg=t.c["background"], width=px(7), cursor="sb_h_double_arrow")
+        sash.pack(side="left", fill="y")
+        line = tk.Frame(sash, bg=t.c["border"], width=1, cursor="sb_h_double_arrow")
+        line.place(relx=0.5, y=0, relheight=1)
+        for w in (sash, line):
+            w.bind("<ButtonPress-1>", self._sash_press)
+            w.bind("<B1-Motion>", self._sash_move)
+            w.bind("<ButtonRelease-1>", self._sash_release)
+            w.bind("<Double-1>", lambda _e: self.set_rail_width(None))
+        self.sash = sash
+
+    def _sash_press(self, e) -> None:
+        self._sash_from = (e.x_root, self.rail_w)
+
+    def _sash_move(self, e) -> None:
+        start = getattr(self, "_sash_from", None)
+        if not start:
+            return
+        most = min(px(RAIL_MAX), max(px(RAIL_MIN), self.root.winfo_width() // 2))
+        self.rail_w = max(px(RAIL_MIN), min(most, start[1] + e.x_root - start[0]))
+        self.rail.configure(width=self.rail_w)
+
+    def _sash_release(self, _e) -> None:
+        if getattr(self, "_sash_from", None):
+            self._sash_from = None
+            self.set_rail_width(round(self.rail_w / theme.SCALE))
+
+    def set_rail_width(self, logical: int | None) -> None:
+        """Remember the rail's width (100% pixels; None: the default) and redraw the list."""
+        if logical is None:
+            self.settings.pop("rail_width", None)
+            logical = self.default_rail_width()
+        else:
+            self.settings["rail_width"] = int(max(RAIL_MIN, min(RAIL_MAX, logical)))
+        save_settings(self.settings)
+        self.rail_w = px(max(RAIL_MIN, min(RAIL_MAX, logical)))
+        self.rail.configure(width=self.rail_w)
+        self.render_rail()
 
     def _capture_summary(self) -> str:
         """The folded recording settings in one mono line: F10 · 30 s · auto."""
@@ -723,7 +776,8 @@ class App:
         edge.pack(side="left", fill="y")
         chev = self._chevron(head, shut, bg)
         chev.pack(side="left", padx=(px(6), px(8)))
-        name = label(head, t, self._fit(h.title, "group", px(170)), font="group", bg=bg)
+        name = label(head, t, self._fit(h.title, "group", self.rail_w - px(110)), font="group",
+                     bg=bg)  # fmt: skip
         name.pack(side="left", pady=px(5))
         own = h.metric and h.metric != getattr(self, "rail_metric", h.metric)
         if own:  # this heading's runs can't show the list's metric (no Reflex markers, say)
@@ -776,12 +830,73 @@ class App:
         save_settings(self.settings)
         self.render_rail()
 
+    def _wrap(self, text: str, font: str, width: int, lines: int = 2) -> list[str] | None:
+        """Wrap text at spaces into at most `lines` lines of `width`; None if it won't fit."""
+        f = self.t.fonts[font]
+        out, cur = [], ""
+        for word in text.split(" "):
+            trial = f"{cur} {word}" if cur else word
+            if f.measure(trial) <= width:
+                cur = trial
+                continue
+            if not cur or f.measure(word) > width:
+                return None  # a word longer than a line
+            out.append(cur)
+            cur = word
+        out.append(cur)
+        return out if len(out) <= lines else None
+
+    def _row_lines(self, s: feed.Setup, font: str, width: int) -> list[str]:
+        """A row's name as one line, or two when it's long (benchmark names often carry the
+        settings). Only when two lines aren't enough is it shortened: a change drops its old
+        value first, then the last line ends with an ellipsis."""
+        name = s.name
+        if self.t.fonts[font].measure(name) <= width:
+            return [name]
+        most = 3 if s.kind == "label" else 2  # the user's own names get a third line
+        change = s.kind in ("settings", "system")
+        wrapped = self._wrap(self._keep_together(name) if change else name, font, width, most)
+        if wrapped:
+            return [w.replace("\u00a0", " ") for w in wrapped]
+        short = self._row_name(s, font, 10**6)  # the change without its old value
+        if short != name:
+            left, _, right = short.partition(" → ")
+            for cand in (short, f"{left} → {right.replace(' more', '')}"):
+                wrapped = self._wrap(self._keep_together(cand), font, width)
+                if wrapped:
+                    return [w.replace("\u00a0", " ") for w in wrapped]
+        out, rest = [], name
+        f = self.t.fonts[font]
+        while rest and len(out) < most - 1:  # fill each line; the last one ends with "…"
+            first, tail = rest, ""
+            while first and f.measure(first) > width:
+                first, _, word = first.rpartition(" ")
+                tail = f"{word} {tail}".strip()
+            if not first:  # one word longer than a line
+                break
+            out.append(first)
+            rest = tail
+        return [*out, self._fit(rest, font, width)] if rest else out
+
+    @staticmethod
+    def _keep_together(name: str) -> str:
+        """A change name with no-break spaces in "4 → 2" and "+2 more", so a wrap falls only
+        between the key and its values ("msaa_samples" / "4 → 2")."""
+        left, arrow, right = name.partition(" → ")
+        if not arrow:
+            return name
+        key, _, old = left.rpartition(" ")
+        nb = "\u00a0"
+        return f"{key} {old}{nb}→{nb}{right.replace(' ', nb)}" if key else name
+
     def _row_name(self, s: feed.Setup, font: str, width: int) -> str:
         """A row's name cut to fit. A change keeps its new value: the old one goes first
         ("shadow_quality → 1"), then "+2 more" shortens to "+2", then the key is cut."""
         name = s.name
-        if self.t.fonts[font].measure(name) <= width or s.kind not in ("settings", "system"):
+        if s.kind not in ("settings", "system"):
             return self._fit(name, font, width)
+        if width < 10**6 and self.t.fonts[font].measure(name) <= width:
+            return name
         left, arrow, right = name.partition(" → ")
         if arrow:
             key = left.rsplit(" ", 1)[0] if " " in left else left
@@ -823,26 +938,40 @@ class App:
         value_w, delta_w = self._rail_widths()
         widgets: list[tk.Widget] = [row]
 
-        # the gutter: one 16px step per level; guides at the chevron centres of the levels above
+        # the name first: it decides the row's height (one line, or two when it's long)
+        font = "body_sm" if s.kind == "label" else "mono_sm"  # keys and times are mono
+        fg = "text3" if child else "text1" if s.kind in feed.NAMED else "text2"
         step, first = px(16), px(6)  # the heading's chevron starts 6px in
-        tall = max(t.fonts[f].metrics("linespace") for f in ("body_sm", "mono_sm"))
-        high = tall + px(12)  # a 28px row
         gutter_w = first + step * level + px(18)  # then a chevron's width and an 8px gap
+        count_w = t.fonts["mono_xs"].measure(s.count_text) + px(6) if s.count_text else 0
+        room = (
+            self.rail_w - px(10 + 14) - px(2) - gutter_w - value_w - px(4) - delta_w - px(16)
+            - count_w
+        )  # fmt: skip
+        lines = self._row_lines(s, font, room)
+        line_h = t.fonts[font].metrics("linespace")
+        tall = t.fonts["mono_sm"].metrics("linespace")
+        pad = px(6)
+        high = line_h * len(lines) + 2 * pad  # a 28px row, or taller for a two-line name
+        y0 = pad + line_h // 2  # the first line's middle: chevron, tick and numbers line up
+        cell_top = pad + (line_h - tall) // 2
+
+        # the gutter: one 16px step per level; guides at the chevron centres of the levels above
         gutter = tk.Canvas(row, width=gutter_w, height=high, bg=t.c[bg], highlightthickness=0,
                            bd=0)  # fmt: skip
-        gutter.pack(side="left")
+        gutter.pack(side="left", anchor="n")
         widgets.append(gutter)
         line = t.c["border_visible"]
         for k in range(level):  # under the heading's chevron, then under the bundle's
             x = first + px(5) + step * k
-            gutter.create_line(x, 0, x, high // 2 if (k == level - 1 and last) else high,
+            gutter.create_line(x, 0, x, y0 if (k == level - 1 and last) else high,
                                fill=line, width=1)  # fmt: skip
         if child:  # a tick from the bundle's guide to the run
             x = first + px(5) + step
-            gutter.create_line(x, high // 2, gutter_w - px(2), high // 2, fill=line, width=1)
+            gutter.create_line(x, y0, gutter_w - px(2), y0, fill=line, width=1)
         if s.is_bundle:  # its chevron at its own step, under the heading's name
             opened = s.bundle in (self.settings.get("open_bundles") or [])
-            c, w, y0 = first + step + px(5), px(3), high // 2
+            c, w = first + step + px(5), px(3)
             pts = (
                 (c - 1, y0 - w, c + w - 1, y0, c - 1, y0 + w)
                 if not opened
@@ -853,21 +982,19 @@ class App:
         if sel and len(self.selected) == 2:  # A and B on the heading's guide
             mark = "A" if s.trace_folder == self.compare_pair()[0][0] else "B"
             x = first + px(5)
-            gutter.create_rectangle(x - px(5), high // 2 - px(7), x + px(5), high // 2 + px(7),
+            gutter.create_rectangle(x - px(5), y0 - px(7), x + px(5), y0 + px(7),
                                     fill=t.c[bg], outline="")  # fmt: skip
-            gutter.create_text(x, high // 2, text=mark, fill=t.c["text1"],
-                               font=t.fonts["mono_xs"])  # fmt: skip
+            gutter.create_text(x, y0, text=mark, fill=t.c["text1"], font=t.fonts["mono_xs"])
         chev = None
-        room = px(296 - 10 - 14 - 2 - 2) - gutter_w - value_w - px(4) - delta_w - px(16)
 
         def cell(width: int, pad: tuple[int, int]) -> tk.Frame:
             box = tk.Frame(row, bg=t.c[bg], width=width, height=tall)
-            box.pack(side="right", padx=pad)
+            box.pack(side="right", padx=pad, anchor="n", pady=(cell_top, 0))
             box.pack_propagate(False)
             widgets.append(box)
             return box
 
-        # right to left, so the name takes what's left and is cut with an ellipsis
+        # right to left: the numbers keep their columns, the name takes what's left
         delta = cell(delta_w, (px(6), px(10)))
         if child:  # a counted run: its difference from the bundle; a left-out one: a lamp
             out = s.status == "out"
@@ -880,10 +1007,10 @@ class App:
         elif s.status == "na":
             label(delta, t, "n/a", font="mono_xs", fg="text4", bg=bg).pack(side="right")
         elif s.status != "alone":  # the lamp carries the status, the number stays neutral
-            level = {"better": "ok", "worse": "warn"}.get(s.status, "idle")
-            fg = "text3" if s.status == "same" else "text2"
-            label(delta, t, s.change, font="mono_xs", fg=fg, bg=bg).pack(side="right")
-            Lamp(delta, t, level).pack(side="right", padx=(0, px(5)))
+            lamp = {"better": "ok", "worse": "warn"}.get(s.status, "idle")
+            tone = "text3" if s.status == "same" else "text2"
+            label(delta, t, s.change, font="mono_xs", fg=tone, bg=bg).pack(side="right")
+            Lamp(delta, t, lamp).pack(side="right", padx=(0, px(5)))
         num, _unit = feed.metric_text(h.metric, s.value) if h.metric else ("---", "")
         value = cell(value_w, (px(4), 0))
         dim = s.value is None or child
@@ -891,16 +1018,14 @@ class App:
             side="right"
         )
         # what the user named or changed is text1; a time (nothing named) text2; a run text3
-        font = "body_sm" if s.kind == "label" else "mono_sm"  # keys and times are mono
-        fg = "text3" if child else "text1" if s.kind in feed.NAMED else "text2"
-        if s.count_text:  # ×3 right after the name, quiet: the runs' trouble shows in the tree
-            cnt = label(row, t, s.count_text, font="mono_xs", bg=bg, fg="text3")
-            room -= cnt.winfo_reqwidth() + px(6)
-        name = label(row, t, self._row_name(s, font, room), font=font, bg=bg, anchor="w", fg=fg)
-        name.pack(side="left")
+        name = label(row, t, "\n".join(lines), font=font, bg=bg, anchor="nw", fg=fg,
+                     justify="left")  # fmt: skip
+        name.pack(side="left", anchor="n", pady=(pad, pad))
         widgets.append(name)
-        if s.count_text:
-            cnt.pack(side="left", padx=(px(6), 0))
+        if s.count_text:  # ×3 right after the name's first line, quiet
+            cnt = label(row, t, s.count_text, font="mono_xs", bg=bg, fg="text3")
+            xs = t.fonts["mono_xs"].metrics("linespace")
+            cnt.pack(side="left", anchor="n", padx=(px(6), 0), pady=(pad + (line_h - xs) // 2, 0))
             widgets.append(cnt)
 
         def paint(hover: bool) -> None:
@@ -971,7 +1096,9 @@ class App:
             if text:
                 self.col_value.pack_forget()
                 self.col_delta.pack_forget()
-                self.drag_hint.configure(text=self._fit(text, "mono_xs", px(190)))
+                self.drag_hint.configure(
+                    text=self._fit(text, "mono_xs", self.rail_w - px(110))
+                )
                 self.drag_hint.pack(side="right")
             else:
                 self.drag_hint.pack_forget()

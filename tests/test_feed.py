@@ -333,6 +333,20 @@ def test_window_bundles_by_drag_and_shows_the_profile(tk_root, tmp_path, monkeyp
     tight = font.measure("msaa_samples → 2")
     assert app._row_name(msaa, "mono_sm", tight) == "msaa_samples → 2"
     assert app._row_name(msaa, "mono_sm", tight - font.measure("xxxx")).endswith("… → 2")
+    # a long name wraps instead of being cut: a change breaks between its key and its values
+    assert app._row_lines(msaa, "mono_sm", 1000) == ["msaa_samples 4 → 2"]
+    two = max(font.measure("msaa_samples"), font.measure("4 → 2"))
+    assert app._row_lines(msaa, "mono_sm", two) == ["msaa_samples", "4 → 2"]
+    msaa.name, msaa.kind = "Discord HW acceleration off, overlay off, FG on", "label"
+    sans = app.t.fonts["body_sm"]
+    lines = app._row_lines(msaa, "body_sm", sans.measure("Discord HW acceleration"))
+    assert lines[0] == "Discord HW acceleration" and " ".join(lines).endswith("FG on")
+    # the rail is as wide as the user drags it, and remembers it
+    app.set_rail_width(500)
+    assert app.rail_w == theme.px(500)
+    assert json.loads((tmp_path / "settings.json").read_text())["rail_width"] == 500
+    app.set_rail_width(None)  # double-click: the default again
+    assert "rail_width" not in json.loads((tmp_path / "settings.json").read_text())
     app.on_close()
 
 

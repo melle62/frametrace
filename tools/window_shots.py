@@ -220,7 +220,8 @@ def demo_captures(root: Path) -> None:
     write_capture(
         root, "20261126-2241-cs2", "2026-11-26T22:41:00+01:00",
         frames(1, 100, 2.31, 0.94, 1.0, latency_ms=6.6, hitches=hitches),
-        settings=cs2_settings(videocfg_shadow_quality="1"), goal=lows, user={"group": group},
+        settings=cs2_settings(videocfg_shadow_quality="1"), goal=lows,
+        user={"group": group, "label": "Shadows medium, MSAA 4x, FSR off, Reflex on + boost"},
     )  # fmt: skip
     write_capture(
         root, "20261126-2237-cs2", "2026-11-26T22:37:00+01:00",
@@ -371,6 +372,9 @@ def shots(out: Path, themes: list[str], readme: bool) -> None:
         app.toggle_bundle(app.setup_for(msaa).bundle)  # open both: their runs as a tree
         app.toggle_bundle(bundle.bundle)
         grab(root, out / f"{name}-bundle-open.png")
+        app.set_rail_width(440)  # dragged wider: long names on one line
+        grab(root, out / f"{name}-rail-wide.png")
+        app.set_rail_width(None)
         app.select(bundle.children[0].key, add=False)
         grab(root, out / f"{name}-bundle-run.png")
         app.select(shadows, add=False)
