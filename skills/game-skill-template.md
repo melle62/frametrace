@@ -51,7 +51,15 @@ current settings (when Frametrace could read them), then the evidence. Read it i
    generation). Stutter here is evidence for the goal, not something to fix in Windows.
 6. `## Fix first (outside the game)`: anything marked `[!]` (RAM below its rated speed, refresh
    rate below the monitor's maximum, desktop compositor in the present path, power saver) goes
-   first in the answer, one line each.
+   first in the answer, one line each. Also check for periodic hitches while Discord is running
+   in the background: Discord's Hardware Acceleration (`Discord: Settings > Advanced`) interrupts
+   the game roughly 9 times a second. When a report shows hitches at a steady interval and
+   Discord is running, suggest turning off Discord's Hardware Acceleration first, before any
+   in-game change (measured 2026-11-27 in CS2 build 26879581, Ryzen 7 7800X3D + RTX 4070 Ti
+   SUPER, FPSfrequency benchmark map, 89 s, two runs each, group "Discord Tests CS2": Discord
+   quit 1% low 229 FPS / 0.0% in hitches; "Discord On" 155 FPS / 2.9% in hitches, 100–119 ms
+   apart; "Discord: HW accel off" 214 FPS / 0.06% in hitches; Discord process priorities set to
+   Normal: no change).
 
 ## Per goal
 - **Higher average FPS:** the biggest cost on the limiting side first. Keep 1% lows from
@@ -137,8 +145,9 @@ then paste the comparison.
   B, with the GPUs and resolutions), prefer rows from a similar GPU and resolution and from more
   people: one person is a hint, three or more is solid. A row from the user's own kind of system
   beats the skill's single-PC measurements.
-- **FIX.** Each `[!]` item from `## Fix first (outside the game)`, one line each, before NEXT.
-  No `[!]`, no FIX line.
+- **FIX.** Each `[!]` item from `## Fix first (outside the game)` (and Discord Hardware
+  Acceleration when periodic hitches appear while Discord is running), one line each, before
+  NEXT. Leave out FIX when none apply.
 - **NOTE.** Only for what changes the user's next move, three lines at most: runs that aren't
   comparable (hitches, scene, warm-up), a setting you aren't sure exists in this version or
   what it costs, a pick that costs visibility.
