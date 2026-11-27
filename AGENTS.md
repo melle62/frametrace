@@ -1,10 +1,11 @@
 # AGENTS.md: Frametrace for AI agents
 
-Read this before you change anything. Cursor and Grok Build load this file on their own.
-Grok Bot: read it from `https://raw.githubusercontent.com/melle62/frametrace/main/AGENTS.md`.
+Read this before you change anything. Grok Build and other coding agents load this file on
+their own. Grok Bot: read it from
+`https://raw.githubusercontent.com/melle62/frametrace/main/AGENTS.md`.
 
-Frametrace is built by one person, Melvin (GitHub `melle62`), working with three AIs: Claude,
-Cursor and Grok Bot. Section 9 says who does what. Melvin decides and merges; you propose.
+Frametrace is built by one person, Melvin (GitHub `melle62`), working with two AIs: Claude and
+Grok Bot. Section 9 says who does what. Melvin decides and merges; you propose.
 
 ## 1. What Frametrace is
 
@@ -25,17 +26,16 @@ wrapping the PresentMon console 2.6.0. MIT. Alpha.
 
 ## 2. Current state (2026-11-27)
 
-- `main` has PR #8 (merged 2026-11-27). `pytest` on Linux: 143 pass, 6 skip (Tk and
+- `main` has PR #11 (merged 2026-11-27). `pytest` on Linux: 143 pass, 6 skip (Tk and
   Windows-only).
 - The captures list (`feed.py`): one row per run, named after what changed from the row
   before, measured against a base; each game has a profile page. Checked on Windows by Cursor
   (2026-11-27, PR #8): the right-click menus and the real CS2 list (no separate `CS2.EXE`
   heading). 125% and 150% were only simulated in code; real Windows scaling is still task 3.
-- **PR #11 is open** (`feature/manual-bundles`, built on PR #10 at Melvin's call): runs no
-  longer stack on their own. The user drags a run onto another to bundle repeats
-  (`user.bundle` in `result.json`), a bundle opens as a tree of its runs, and rows drag out of
-  bundles and between groups. Until it's merged, don't start other work on `feed.py` or
-  `gui.py`.
+- Since PR #11, runs don't stack on their own: the user drags a run onto another to bundle
+  repeats (`user.bundle` in `result.json`), a bundle opens as a tree of its runs, and rows drag
+  out of bundles and between groups. Not checked on Windows yet: dragging with a real mouse,
+  the tree at 125% and 150%.
 - Live services: a Supabase inbox (project `frametrace`, eu-north-1) receives opt-in shared
   captures; a daily export (02:23 UTC) publishes them to `melle62/frametrace-data`; a weekly
   workflow (Mondays 04:41 UTC) opens a PR that updates the game skills' community-data tables.
@@ -162,7 +162,7 @@ on panels, no toasts, no hype words. Document a new component in `components.md`
   link. Everything else goes under "Not measured yet".
 - Only one-change comparisons count as a setting's cost (`tools/aggregate.py`).
 
-## 8. The dev PC (where Cursor runs)
+## 8. The dev PC
 
 Ryzen 7 7800X3D, RTX 4070 Ti Super, 32 GB DDR5-5600, ASUS TUF B650-PLUS WIFI, a 1440p 280 Hz
 OLED (primary) and a second monitor in portrait at 260 Hz, Windows 11 Home 26H2 (custom
@@ -171,27 +171,27 @@ certificate checks: downloads and uploads fall back to `curl.exe` (hashes still 
 7800X3D's integrated Radeon shows up as a second GPU. CS2 is tested on FPSfrequency's FPS
 Benchmark workshop map and on Anubis Deathmatch.
 
-## 9. Three AIs, one repo
+## 9. Two AIs, one repo
 
-| | Claude | Cursor | Grok Bot |
-|---|---|---|---|
-| Runs in | claude.ai Project "Frametrace" and cloud sessions | Melvin's Windows PC, local clone | a cloud computer, also while the PC is off |
-| Knows | the full history (the Project's handover doc), Melvin's skills, Supabase | this file and the code | this file, the public repo and dataset, the web |
-| Does | big features end to end, design, skills, data analysis, reviews, the decision log | everything that needs Windows or real hardware, fix loops from real runs, Windows checks | two Bots: Research (dataset + web → study logs) and Skills (study logs → PRs on `skills/`) |
-| Can't | run the window, PresentMon or a game (Linux, no GPU) | see past decisions not written here | run Frametrace or a game; touch app code |
+| | Claude | Grok Bot |
+|---|---|---|
+| Runs in | claude.ai Project "Frametrace" and cloud sessions; on the dev PC (its files and screen) through the Claude desktop app while Melvin has it open | a cloud computer, also while the PC is off |
+| Knows | the full history (the Project's handover doc), Melvin's skills, Supabase | this file, the public repo and dataset, the web |
+| Does | big features end to end, design, skills, data analysis, reviews, the decision log, Windows checks on the dev PC | two Bots: Research (dataset + web → study logs) and Skills (study logs → PRs on `skills/`) |
+| Can't | in a cloud session: run the window, PresentMon or a game (Linux, no GPU) | run Frametrace or a game; touch app code |
 
-How work moves between the three:
+How work moves between them:
 
 1. **The pull request is the handoff.** Its description says: what changed and why; how it was
-   tested (commands, and "on Windows: yes/no"); **Not checked on Windows** (a list, becomes
-   Cursor's queue); follow-ups; and `Made with: Claude | Cursor (<model>) | Grok Bot`.
+   tested (commands, and "on Windows: yes/no"); **Not checked on Windows** (a list: Claude goes
+   through it on the dev PC, or Melvin does); follow-ups; and `Made with: Claude | Grok Bot`.
 2. **One agent per branch.** Never commit to another agent's branch unless Melvin asks.
    Branch names: `feature/<slug>` or `fix/<slug>`.
 3. **Check before you start.** `git fetch`, then look at open PRs. If one touches the files you
    need (above all `gui.py`, `report.py`, `summary.py`, `skills/frametrace/SKILL.md`), stop and
    ask Melvin, or build on that branch with his OK.
-4. **Small PRs, rebased on `main`** before review. Claude reviews big or risky PRs when Melvin
-   pastes the link into the Claude Project.
+4. **Small PRs, rebased on `main`** before review. Claude reviews big or risky PRs, and the
+   Skills Bot's, when Melvin pastes the link into the Claude Project.
 5. **Keep this file true.** A PR that changes the state in section 2, a rule or a command
    updates this file in the same PR. Claude keeps the long log in the Project's handover doc.
 6. **Grok Bots stay in their lanes.** The Research Bot only reads (the dataset, the web) and
@@ -202,11 +202,13 @@ How work moves between the three:
 
 ## 10. Task queue
 
-**Cursor** (needs the PC), roughly in order:
+**Windows and real hardware** (Claude on the dev PC through the Claude desktop app, or a
+checklist Melvin runs; code-only Windows work is tested on CI's `windows-latest`), roughly in
+order:
 
-1. Windows checks of open PRs (PR #8's was done on 2026-11-27): check out the branch, run
-   `pytest` (GUI tests included) on Python 3.15, go through its "Not checked on Windows" list
-   and report what you find in the PR.
+1. Windows checks of PRs: `pytest` (GUI tests included) on the dev PC's Python 3.15, then the
+   PR's "Not checked on Windows" list, reported in the PR. Open now: PR #11's list (dragging
+   with a real mouse, bundling the 7800X3D baselines again, the tree at 125% and 150%).
 2. Labels, groups and delete to the Recycle Bin (`SHFileOperationW`) on Windows; the
    `TextDialog` title bar.
 3. The window on real hardware: light mode, 125% and 150% scaling, the Game tab, Compare with
@@ -217,8 +219,9 @@ How work moves between the three:
 6. HAGS state through D3DKMT (ctypes), since its registry value is missing on the dev PC.
 7. Later: package as an `.exe` with PyInstaller (PresentMon, its notices, fonts, icon).
 
-**Claude:** review Cursor's PRs; game studies for DayZ and Forza Horizon 6 with the general
-skill (Melvin does the runs); next engine readers; data checks after exports; the handover doc.
+**Claude:** the Windows queue above; review the Skills Bot's PRs; game studies for DayZ and
+Forza Horizon 6 with the general skill (Melvin does the runs); next engine readers; data checks
+after exports; the handover doc.
 
 **Grok Bot, Research:** a daily digest of the shared dataset (06:10 Stockholm, after the export)
 and a weekly game-research run (Forza Horizon 6, then DayZ, then CS2 updates). Its "Not
