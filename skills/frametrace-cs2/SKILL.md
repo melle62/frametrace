@@ -307,20 +307,17 @@ not measured (`aggregate.py`: 0 usable pairs).
 | Boost Player Contrast | Disabled → Enabled | −0.1% (A only) |
 
 ## By goal
-- **Higher average FPS** (GPU-limited, as on the reference PC): MSAA 4X → 2X first; CMAA2 or
-  None only as a later step, and say it costs visibility behind grates (guide A). Then Ambient
-  Occlusion Disabled and Particle Detail Low: together measured at −12% GPU time, single costs
-  unmeasured. One step of MSAA at 1280 × 960, guide A: 4X → 2X about +1.8% avg (924.7 → 941.0
-  FPS), 8X → 4X about +6.8% (865.6 → 924.7). Guide B, same steps: about +2.5% (865.5 → 887.5)
-  and about +7.0% (808.8 → 865.5). The 4X and 8X rows under Guide costs are from None, not one
-  step. Particle Very High −9.6% / −10% and AO High −0.8% / −4.8% (guide A / B, from Low /
-  Disabled). Then Global Shadow Quality
-  one step (Very High is the big one: −10.2% / −22%; High −4.8% / −12.9%; visibility at Low,
-  see above), then Model / Texture Detail (High −5.5% / −8.6%), Shader Detail (High −1.5% /
-  −5.4%), HDR, then resolution or FSR. Don't touch Boost Player Contrast (guide A: −0.1%) or
-  Dynamic Shadows (guide A / B: All −0.6% / −2%) for FPS; keep both on. Anisotropic 16X is
-  near free (guide A / B: −0.9% / −1%) — don't cut it for FPS. When CPU-limited (low
-  resolution, fast GPU), video settings barely move it; say so rather than cutting visuals.
+- **Higher average FPS** (GPU-limited, as on the reference PC): MSAA one step down while
+  above 2X (8X → 4X, then 4X → 2X). At 2X already, as on the reference PC, Ambient Occlusion
+  Disabled and Particle Detail Low come before CMAA2 or None; say CMAA2 or None costs
+  visibility behind grates (guide A). MSAA one step, Ambient Occlusion and Particle Detail
+  together measured −12% GPU time; each one alone is unmeasured. Then Global Shadow Quality
+  one step (visibility at Low, see above), Model / Texture Detail, Shader Detail, HDR, then
+  resolution or FSR. Percentages are in Guide costs. The MSAA rows there are from None,
+  not one step (one step is smaller: guide A about +1.8% and +6.8%, guide B about +2.5%
+  and +7.0%). Don't touch Boost Player Contrast
+  or Dynamic Shadows; keep both on. Anisotropic 16X is near free — don't cut it. When
+  CPU-limited, video settings barely move it; say so rather than cutting visuals.
 - **Higher 1% lows:** first check the run is clean. Two runs with the same settings came out
   hitchy (3–4% of the time in hitches, worst frames 15–20 ms) or clean (~0%); a hitchy "before"
   makes any change look great. Ask for a repeat when only one run is hitchy. Then the GPU-heavy
