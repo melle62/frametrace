@@ -1017,7 +1017,12 @@ class App:
         bg = "surface2" if sel else "background"
         row = tk.Frame(parent, bg=t.c[bg], cursor="hand2")
         row.pack(fill="x")
-        edge = tk.Frame(row, width=2, bg=t.c["accent"] if sel else t.c[bg])
+        # one yellow edge: on the row the main column shows. Two compared rows both keep it
+        # (A and B are both shown); in a larger selection the others get a neutral edge
+        lit = sel and (len(self.selected) <= 2 or key == self.selected[-1])
+        edge = tk.Frame(
+            row, width=2, bg=t.c["accent" if lit else "border_visible" if sel else bg]
+        )
         edge.pack(side="left", fill="y")
         value_w, delta_w = self._rail_widths()
         widgets: list[tk.Widget] = [row]
@@ -1875,7 +1880,7 @@ class App:
         if not self.captures:
             hint = ""
         elif len(self.selected) > 2:
-            hint = f"{len(self.selected)} selected · Ctrl+G groups · Delete · Esc clears"
+            hint = f"{len(self.selected)} selected · Ctrl+G group · Del · Esc"
         elif two:
             hint = "Ctrl+click a selected capture to leave the comparison"
         else:
