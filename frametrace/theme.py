@@ -213,11 +213,13 @@ def apply(root: tk.Tk, name: str = "dark", fonts: dict | None = None) -> Theme:
         darkcolor=[("focus", c["background"])],
     )
     chevron = _chevron_element(root, style, name, c)
+    # Clam's Combobox.field draws no right border (its arrow button draws one). Our chevron
+    # has no border, so the combobox uses the entry's field, which has all four sides
     style.layout(
         "TCombobox",
         [
             (
-                "Combobox.field",
+                "Entry.field",
                 {
                     "sticky": "nswe",
                     "children": [
