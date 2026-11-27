@@ -43,7 +43,12 @@ current settings (when Frametrace could read them), then the evidence. Read it i
    generation). Stutter here is evidence for the goal, not something to fix in Windows.
 6. `## Fix first (outside the game)`: anything marked `[!]` (RAM below its rated speed, refresh
    rate below the monitor's maximum, desktop compositor in the present path, power saver) goes
-   first in the answer, one line each.
+   first in the answer, one line each. A report shows hitch time, not which apps were open.
+   When more than 1% of the time is in hitches and the user hasn't said what else was open,
+   ask whether Discord is running. If it is, turn off its Hardware Acceleration (Settings >
+   Advanced) first, before any in-game change. It interrupts the game about 9 times a second
+   (measured on one PC in CS2 (2026-11-27): 1% low 155 → 214 FPS with it off, 229 with
+   Discord quit).
 
 ## Per goal
 - **Higher average FPS:** the biggest cost on the limiting side first. Keep 1% lows from
@@ -130,7 +135,9 @@ then paste the comparison.
   people: one person is a hint, three or more is solid. A row from the user's own kind of system
   beats the skill's single-PC measurements.
 - **FIX.** Each `[!]` item from `## Fix first (outside the game)`, one line each, before NEXT.
-  No `[!]`, no FIX line.
+  When more than 1% of the time is in hitches and the user hasn't said what else was open, ask
+  whether Discord is running. If it is, one line to turn off its Hardware Acceleration
+  (Settings > Advanced), before NEXT. Leave out FIX when none apply.
 - **NOTE.** Only for what changes the user's next move, three lines at most: runs that aren't
   comparable (hitches, scene, warm-up), a setting you aren't sure exists in this version or
   what it costs, a pick that costs visibility.
