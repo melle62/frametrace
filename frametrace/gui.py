@@ -25,6 +25,7 @@ from tkinter import ttk
 from frametrace import (
     capture,
     download,
+    feed,
     goals,
     hotkey,
     presentmon,
@@ -75,6 +76,8 @@ DEFAULTS = {
     "goal": goals.DEFAULT_GOAL,
     "target_fps": "",
     "collapsed": [],  # capture groups folded shut in the list
+    "bases": {},  # heading key -> a run of the setup the user pinned as that heading's base
+    "chosen": {},  # heading key -> a run of the setup the user keeps as their settings
     "share": None,  # share captures with the dataset: None = not asked yet
 }
 LENGTHS = ["10", "20", "30", "60", "90", "100", "120", "180", "300"]
@@ -119,7 +122,10 @@ class App:
         self.setup_issue: tuple[str, str, list] | None = None  # (level, text, buttons)
         self.capture_error: str | None = None
         self.confirm: tuple[str, list] | None = None  # (text, buttons): a question in the banner
-        self.rail_order: list[Path] = []  # captures as the list shows them, for the arrow keys
+        self.rail_order: list[Path] = []  # setups as the list shows them, for the arrow keys
+        self.feed: list[feed.Heading] = []  # the list: headings of setups (frametrace.feed)
+        self.setups: dict[Path, feed.Setup] = {}  # every run's folder -> its setup
+        self.profile_key: str | None = None  # a heading whose game profile is shown
         self.record_info: dict = {}
         self.note_job: str | None = None
         self.poll_job: str | None = None
@@ -189,7 +195,11 @@ class App:
         r.bind_all("<Up>", lambda e: self._key_move(e, -1), add="+")
         r.bind_all("<Down>", lambda e: self._key_move(e, 1), add="+")
         r.bind_all("<F2>", lambda e: self._key_selected(e, self.rename_capture), add="+")
-        r.bind_all("<Delete>", lambda e: self._key_selected(e, self.ask_delete), add="+")
+        r.bind_all(
+            "<Delete>",
+            lambda e: self._key_selected(e, lambda f: self.ask_delete(self._runs_of(f))),
+            add="+",
+        )
 
     @staticmethod
     def _typing(widget) -> bool:
@@ -218,6 +228,10 @@ class App:
             return None
         action(self.selected[-1])
         return "break"
+
+    def _runs_of(self, folder: Path) -> list[Path]:
+        s = self.setup_for(folder)
+        return s.folders if s else [folder]
 
     def _key_move(self, e, step: int) -> str | None:
         if self._typing(e.widget) or not self.captures:
@@ -408,10 +422,11 @@ class App:
         return v if 10 <= v <= 1000 else None
 
     def apply_goal(self) -> None:
-        """A new goal re-renders the shown capture or comparison and is used for the next one."""
+        """A new goal re-renders the list, the shown capture, comparison or profile."""
         self._paint_target()
         self.save()
-        if self.current_result() or len(self.selected) == 2:
+        self.render_rail()
+        if self.current_result() or len(self.selected) == 2 or self.profile_key:
             self.render_main()
 
     def _paint_length(self) -> None:
@@ -479,6 +494,7 @@ class App:
         self.page_system = ScrollFrame(self.pages, t)
         self.page_game = ScrollFrame(self.pages, t)
         self.page_compare = ScrollFrame(self.pages, t)
+        self.page_profile = ScrollFrame(self.pages, t)
         self.compare_scope: Scope | None = None
         self.shown = "Summary"
         self.shown_text = ""
@@ -541,6 +557,8 @@ class App:
         low.pack(fill="x", pady=(0, px(8)))
         low.columnconfigure(0, weight=4, uniform="low")
         low.columnconfigure(1, weight=3, uniform="low")
+        self.low_row = low
+        self.runs_panel = frame(page, t, "surface1", border="border")  # packed for stacks
         self.checks_panel = frame(low, t, "surface1", border="border")
         self.checks_panel.grid(row=0, column=0, sticky="nsew")
         self.details_panel = frame(low, t, "surface1", border="border")
@@ -586,6 +604,7 @@ class App:
         inner = self.list.inner
         for child in inner.winfo_children():
             child.destroy()
+        self._rebuild_feed()
         self.count_label.configure(text=str(len(self.captures)))
         self.rail_order = []
         if not self.captures:
@@ -596,23 +615,26 @@ class App:
                 box, t, "Each capture is saved here, newest first.", font="caption", fg="text3"
             ).pack(anchor="w", pady=(px(2), 0))
         folded = set(self.settings.get("collapsed") or [])
-        for heading, custom, rows in summary.rail_groups(self.captures):
-            shut = heading in folded
-            self._group_head(inner, heading, custom, rows, shut)
+        for h in self.feed:
+            shut = h.title in folded
+            self._group_head(inner, h, shut)
             if shut:
                 continue
-            for folder, result in rows:
-                try:
-                    level, name, meta, fps, sub = summary.rail_row(result)
-                except (KeyError, TypeError):
-                    continue
-                self.rail_order.append(folder)
-                self._rail_row(inner, folder, level, name, meta, fps, sub)
+            for s in h.setups:
+                self.rail_order.append(s.folder)
+                self._rail_row(inner, h, s)
         self._render_foot()
 
-    def _group_head(self, parent, heading: str, custom: bool, rows: list, shut: bool) -> None:
-        """A group's heading: chevron, name and count. Click folds it, right-click for more."""
+    # the list's columns: name | count | value | change against the base
+    def _rail_widths(self) -> tuple[int, int]:
+        """(value, change): wide enough for 1,000 FPS and a two-digit change."""
+        sm, xs = self.t.fonts["mono_sm"], self.t.fonts["mono_xs"]
+        return sm.measure("0000.0"), px(13) + xs.measure("-00.0%")
+
+    def _group_head(self, parent, h: feed.Heading, shut: bool) -> None:
+        """A heading: chevron (folds it), name (opens the game's profile), metric or count."""
         t = self.t
+        shown = self.profile_key == h.key
         head = tk.Frame(parent, bg=t.c["background"], cursor="hand2")
         head.pack(fill="x", pady=(px(10), px(4)))
         chev = tk.Canvas(
@@ -626,15 +648,19 @@ class App:
             else (c - w, c - 1, c, c + w - 1, c + w, c - 1)
         )
         chev.create_line(*pts, fill=t.c["text3"], width=max(1, px(1.5)), capstyle="projecting")
-        name = silk(head, t, heading, fg="text2" if custom else "text3")
+        name = silk(head, t, h.title, fg="text1" if shown else "text2" if h.custom else "text3")
         name.pack(side="left")
-        count = label(head, t, str(len(rows)), font="mono_xs", fg="text4")
-        count.pack(side="right", padx=(0, px(12)))
-        for w in (head, chev, name, count):
-            w.bind("<Button-1>", lambda _e, h=heading: self.toggle_group(h))
-            w.bind(
-                "<Button-3>", lambda e, h=heading, r=rows, cu=custom: self._group_menu(e, h, r, cu)
-            )
+        if shut:
+            right = label(head, t, str(len(h.setups)), font="mono_xs", fg="text4")
+        else:
+            right = silk(head, t, feed.METRIC_SHORT.get(h.metric or "", (h.metric or "").upper()))
+            right.configure(fg=t.c["text4"])
+        right.pack(side="right", padx=(0, px(12)))
+        chev.bind("<Button-1>", lambda _e, k=h.title: self.toggle_group(k))
+        for wdg in (head, name, right):
+            wdg.bind("<Button-1>", lambda _e, k=h.key: self.open_profile(k))
+        for wdg in (head, chev, name, right):
+            wdg.bind("<Button-3>", lambda e, hh=h: self._group_menu(e, hh))
 
     def toggle_group(self, heading: str) -> None:
         folded = list(self.settings.get("collapsed") or [])
@@ -646,72 +672,118 @@ class App:
         save_settings(self.settings)
         self.render_rail()
 
-    def _rail_row(self, parent, folder: Path, level, name, meta, fps, sub) -> None:
+    def _fit(self, text: str, font: str, width: int) -> str:
+        """Cut text to a pixel width with an ellipsis (Tk labels don't)."""
+        f = self.t.fonts[font]
+        if f.measure(text) <= width:
+            return text
+        while text and f.measure(text + "…") > width:
+            text = text[:-1]
+        return text.rstrip() + "…"
+
+    def _rail_row(self, parent, h: feed.Heading, s: feed.Setup) -> None:
+        """One setup on one line: name, ×runs, the goal's number, the change against the base."""
         t = self.t
-        sel = folder in self.selected
+        folder = s.folder
+        sel = folder in self.selected and not self.profile_key
         bg = "surface2" if sel else "background"
         row = tk.Frame(parent, bg=t.c[bg], cursor="hand2")
         row.pack(fill="x", pady=(0, 1))
         edge = tk.Frame(row, width=2, bg=t.c["accent"] if sel else t.c[bg])
         edge.pack(side="left", fill="y")
+        value_w, delta_w = self._rail_widths()
+        widgets: list[tk.Widget] = [row]
+        room = px(296 - 10 - 2 - 10 - 10 - 6 - 4) - value_w - delta_w  # what the name may use
         if sel and len(self.selected) == 2:
-            mark = "A" if folder == self.compare_pair()[0][0] else "B"
-            lamp = label(row, t, mark, font="mono_xs", fg="text1", bg=bg, width=1)
-            lamp.pack(side="left", padx=(px(8), px(10)))
-        else:
-            lamp = Lamp(row, t, level)
-            lamp.pack(side="left", padx=(px(10), px(12)))
-        mid = tk.Frame(row, bg=t.c[bg])
-        mid.pack(side="left", fill="x", expand=True, pady=px(9))
-        a = label(mid, t, name, bg=bg, anchor="w")
-        a.pack(fill="x")
-        b = label(mid, t, meta, font="mono_xs", fg="text3", bg=bg, anchor="w")
-        b.pack(fill="x", pady=(px(2), 0))
-        right = tk.Frame(row, bg=t.c[bg])
-        right.pack(side="right", padx=(px(4), px(10)))
-        top = tk.Frame(right, bg=t.c[bg])
-        top.pack(anchor="e")
-        c = label(top, t, fps, font="mono_sm", bg=bg)
-        c.pack(side="left")
-        u = label(top, t, " FPS", font="mono_xs", fg="text3", bg=bg)
-        u.pack(side="left", anchor="s", pady=(0, 1))
-        d = label(right, t, sub, font="mono_xs", fg="text3", bg=bg, anchor="e")
-        d.pack(anchor="e", pady=(px(2), 0))
-        widgets = (row, mid, right, top, a, b, c, u, d, lamp)
+            mark = "A" if s.trace_folder == self.compare_pair()[0][0] else "B"
+            lead = label(row, t, mark, font="mono_xs", fg="text1", bg=bg, width=1)
+            lead.pack(side="left", padx=(px(8), 0))
+            widgets.append(lead)
+            room -= lead.winfo_reqwidth() + px(8)
+
+        # right to left, so the name takes what's left and is cut with an ellipsis
+        tall = t.fonts["mono_sm"].metrics("linespace")
+
+        def cell(width: int, pad: tuple[int, int]) -> tk.Frame:
+            box = tk.Frame(row, bg=t.c[bg], width=width, height=tall)
+            box.pack(side="right", padx=pad)
+            box.pack_propagate(False)
+            widgets.append(box)
+            return box
+
+        delta = cell(delta_w, (px(6), px(10)))
+        if s.status == "base":
+            silk(delta, t, "Base", bg=bg, fg="text3").pack(side="right")
+        elif s.status == "na":
+            label(delta, t, "n/a", font="mono_xs", fg="text4", bg=bg).pack(side="right")
+        elif s.status != "alone":
+            level = {"better": "ok", "worse": "warn"}.get(s.status, "idle")
+            fg = {"better": "success", "worse": "warning"}.get(s.status, "text3")
+            label(delta, t, s.change, font="mono_xs", fg=fg, bg=bg).pack(side="right")
+            Lamp(delta, t, level).pack(side="right", padx=(0, px(5)))
+        num, _unit = feed.metric_text(h.metric, s.value) if h.metric else ("---", "")
+        value = cell(value_w, (px(4), 0))
+        label(
+            value, t, num, font="mono_sm", fg="text1" if s.value is not None else "text4", bg=bg
+        ).pack(side="right")
+        font = "body_sm" if s.kind == "label" else "mono_sm"  # keys and times are mono
+        if s.count_text:  # ×3 right after the name; orange when runs disagree or one is out
+            odd = s.spread or len(s.used_runs) < s.count
+            cnt = label(row, t, s.count_text, font="mono_xs", bg=bg,
+                        fg="warning" if odd else "text3")  # fmt: skip
+            room -= cnt.winfo_reqwidth() + px(6)
+        name = label(row, t, self._fit(s.name, font, room), font=font, bg=bg, anchor="w")
+        name.pack(side="left", padx=(px(10), 0), pady=px(7))
+        widgets.append(name)
+        if s.count_text:
+            cnt.pack(side="left", padx=(px(6), 0))
+            widgets.append(cnt)
 
         def paint(hover: bool) -> None:
-            if folder in self.selected:
+            if sel:
                 return
             col = t.c["surface2" if hover else "background"]
-            for w in widgets:
-                if not isinstance(w, Lamp):
-                    w.configure(bg=col)
+            for wdg in widgets:
+                wdg.configure(bg=col)
+                for child in wdg.winfo_children():
+                    if not isinstance(child, Lamp):
+                        child.configure(bg=col)
             edge.configure(bg=col)
 
-        for w in widgets:
-            w.bind("<Button-1>", lambda _e, f=folder: self.select(f, add=False))
-            w.bind("<Control-Button-1>", lambda _e, f=folder: self.select(f, add=True))
-            w.bind("<Shift-Button-1>", lambda _e, f=folder: self.select(f, add=True))
-            w.bind("<Double-1>", lambda _e, f=folder: _open(f))
-            w.bind("<Button-3>", lambda e, f=folder: self._row_menu(e, f))
-            w.bind("<Enter>", lambda _e: paint(True), add="+")
-            w.bind("<Leave>", lambda _e: paint(False), add="+")
+        for wdg in [*widgets, *(c for w in widgets for c in w.winfo_children())]:
+            wdg.bind("<Button-1>", lambda _e, f=folder: self.select(f, add=False))
+            wdg.bind("<Control-Button-1>", lambda _e, f=folder: self.select(f, add=True))
+            wdg.bind("<Shift-Button-1>", lambda _e, f=folder: self.select(f, add=True))
+            wdg.bind("<Double-1>", lambda _e, f=folder: _open(f))
+            wdg.bind("<Button-3>", lambda e, hh=h, ss=s: self._row_menu(e, hh, ss))
+            wdg.bind("<Enter>", lambda _e: paint(True), add="+")
+            wdg.bind("<Leave>", lambda _e: paint(False), add="+")
 
-    def _row_menu(self, event, folder: Path) -> None:
-        t = self.t
-        m = tk.Menu(
-            self.root, tearoff=0, bg=t.c["surface1"], fg=t.c["text1"], bd=1, relief="flat",
-            activebackground=t.c["surface2"], activeforeground=t.c["text1"],
-            disabledforeground=t.c["text4"], font=t.fonts["body_sm"], activeborderwidth=0,
-        )  # fmt: skip
+    def _row_menu(self, event, h: feed.Heading, s: feed.Setup) -> None:
+        m = self._menu()
+        folder = s.folder
         other = [f for f in self.selected if f != folder]
-        # with two runs selected and the click on one of them, group and delete act on both
-        targets = list(self.selected) if folder in self.selected else [folder]
-        both = f" ({len(targets)})" if len(targets) > 1 else ""
+        # with two rows selected and the click on one of them, group and delete act on both
+        rows = [s]
+        if folder in self.selected:
+            rows = [self.setups[f] for f in self.selected if f in self.setups]
+        targets = [f for r in rows for f in r.folders]
+        many = f" ({len(targets)} runs)" if len(targets) > 1 else ""
         m.add_command(label="Open folder", command=lambda: _open(folder))
         m.add_command(label="Copy report", command=lambda: self._copy_report_of(folder))
         m.add_separator()
         m.add_command(label="Rename…", command=lambda: self.rename_capture(folder))
+        m.add_command(
+            label="Set as base",
+            command=lambda: self.set_base(h, s),
+            state="disabled" if s.status == "base" else "normal",
+        )
+        mine = self._chosen_setup(h) is s
+        m.add_command(
+            label="Stop using as my settings" if mine else "Use as my settings",
+            command=lambda: self.choose_settings(h, None if mine else s),
+        )
+        m.add_separator()
         sub = self._menu(m)
         for g in self.custom_groups():
             sub.add_command(label=g, command=lambda g=g: self.move_to_group(targets, g))
@@ -723,7 +795,11 @@ class App:
             command=lambda: self.move_to_group(targets, None),
             state="normal" if any(self._group_of(f) for f in targets) else "disabled",
         )
-        m.add_cascade(label=f"Move to group{both}", menu=sub)
+        m.add_cascade(label="Move to group", menu=sub)
+        if s.count > 1:
+            m.add_command(label="Split into single runs", command=lambda: self.split_setup(s))
+        if s.split:
+            m.add_command(label="Stack with the row below", command=lambda: self.join_setup(s))
         m.add_separator()
         m.add_command(
             label="Compare with selected",
@@ -731,7 +807,7 @@ class App:
             state="normal" if other else "disabled",
         )
         m.add_separator()
-        m.add_command(label=f"Delete{both}…", command=lambda: self.ask_delete(targets))
+        m.add_command(label=f"Delete{many}…", command=lambda: self.ask_delete(targets))
         try:
             m.tk_popup(event.x_root, event.y_root)
         finally:
@@ -745,24 +821,106 @@ class App:
             disabledforeground=t.c["text4"], font=t.fonts["body_sm"], activeborderwidth=0,
         )  # fmt: skip
 
-    def _group_menu(self, event, heading: str, rows: list, custom: bool) -> None:
+    def _group_menu(self, event, h: feed.Heading) -> None:
         m = self._menu()
-        folders = [f for f, _ in rows]
-        m.add_command(label="Rename group…", command=lambda: self.ask_group(folders, heading))
-        if custom:
+        folders = [f for s in h.setups for f in s.folders]
+        m.add_command(label="Open game profile", command=lambda: self.open_profile(h.key))
+        m.add_separator()
+        if h.custom:
+            m.add_command(label="Rename group…", command=lambda: self.ask_group(folders, h.title))
             m.add_command(
                 label="Ungroup (back under each game)",
                 command=lambda: self.move_to_group(folders, None),
             )
+        else:
+            m.add_command(label="Move all to a group…", command=lambda: self.ask_group(folders))
         m.add_separator()
         m.add_command(
             label=f"Delete all {len(folders)} captures…",
-            command=lambda: self.ask_delete(folders, heading),
+            command=lambda: self.ask_delete(folders, h.title),
         )
         try:
             m.tk_popup(event.x_root, event.y_root)
         finally:
             m.grab_release()
+
+    # --- the feed: setups, base, profile -------------------------------------------------------
+
+    def goal_and_target(self) -> tuple[goals.Goal, int | None]:
+        """The rail's goal; the target falls back to the newest capture's refresh rate."""
+        goal = goals.get(self.goal_key())
+        target = self.target_fps()
+        if goal.key == "target" and not target:
+            newest = self.captures[0][1] if self.captures else {}
+            target = (goals.default_target(newest) if newest else None) or 60
+        return goal, target
+
+    def _rebuild_feed(self) -> None:
+        goal, target = self.goal_and_target()
+        self.feed = feed.build(self.captures, goal, target, self.settings.get("bases") or {})
+        self.setups = {f: s for h in self.feed for s in h.setups for f in s.folders}
+        sel: list[Path] = []
+        for f in self.selected:  # a run that joined a stack selects the stack
+            rep = self.setups[f].folder if f in self.setups else f
+            if rep not in sel:
+                sel.append(rep)
+        self.selected = sel[-2:]
+        if self.profile_key and not any(h.key == self.profile_key for h in self.feed):
+            self.profile_key = None
+
+    def setup_for(self, folder: Path) -> feed.Setup | None:
+        return self.setups.get(folder)
+
+    def heading_for(self, key: str) -> feed.Heading | None:
+        return next((h for h in self.feed if h.key == key), None)
+
+    def view_for(self, folder: Path) -> dict:
+        """What a row stands for: the runs combined, or the one run."""
+        s = self.setups.get(folder)
+        return s.result if s else self.result_for(folder)
+
+    def _pin(self, setting: str, key: str, s: feed.Setup | None) -> None:
+        pins = dict(self.settings.get(setting) or {})
+        if s is None:
+            pins.pop(key, None)
+        else:
+            pins[key] = s.runs[0][0].name
+        self.settings[setting] = pins
+        save_settings(self.settings)
+        self.render_rail()
+        self.render_main()
+
+    def set_base(self, h: feed.Heading, s: feed.Setup) -> None:
+        """Pin a base: it replaces the base of its own kind of run (same length and display)."""
+        self.settings["bases"] = feed.pin(self.settings.get("bases"), h, s)
+        save_settings(self.settings)
+        self.render_rail()
+        self.render_main()
+
+    def choose_settings(self, h: feed.Heading, s: feed.Setup | None) -> None:
+        self._pin("chosen", h.key, s)
+
+    def _chosen_setup(self, h: feed.Heading) -> feed.Setup | None:
+        name = (self.settings.get("chosen") or {}).get(h.key)
+        return next((s for s in h.setups if name in {f.name for f in s.folders}), None)
+
+    def split_setup(self, s: feed.Setup) -> None:
+        """Every run of the setup becomes its own row."""
+        self._save_user([f for f, _ in s.runs[1:]], split="yes")
+
+    def split_run(self, s: feed.Setup, folder: Path) -> None:
+        """Take one run out of its stack: it, and the run after it, start new rows."""
+        i = s.folders.index(folder)
+        self._save_user(s.folders[i : i + 2] if i else s.folders[1:2], split="yes")
+
+    def join_setup(self, s: feed.Setup) -> None:
+        self._save_user([s.runs[0][0]], split=None)
+
+    def open_profile(self, key: str) -> None:
+        self.profile_key = key
+        self.render_rail()
+        self.render_main()
+
 
     # --- organizing captures -------------------------------------------------------------------
 
@@ -798,19 +956,22 @@ class App:
             self.show_note(f"Couldn't save {failed} of {len(folders)}.", "")
 
     def rename_capture(self, folder: Path) -> None:
+        s = self.setup_for(folder)
         try:
             result = self.result_for(folder)
         except StopIteration:
             return
+        folders = s.folders if s else [folder]
+        runs = f" ({len(folders)} runs)" if len(folders) > 1 else ""
         text = TextDialog.ask(
             self,
-            "Rename capture",
-            "A label for this run, like the settings you changed. It shows in the list, the"
-            " report and comparisons. Leave it empty to show the game's name.",
-            summary.label(result) or "",
+            f"Rename{runs}",
+            "A name for this setup, like the settings you changed. It shows in the list, the"
+            " report and comparisons. Leave it empty to name it after what changed.",
+            (s.label if s else summary.label(result)) or "",
         )
         if text is not None:
-            self._save_user([folder], label=text)
+            self._save_user(folders, label=text)
 
     def ask_group(self, folders: list[Path], current: str | None = None) -> None:
         text = TextDialog.ask(
@@ -836,11 +997,14 @@ class App:
         folders = [folders] if isinstance(folders, Path) else list(folders)
         if not folders:
             return
+        setup = self.setup_for(folders[0])
         if heading:
             what = f"all {len(folders)} captures in {heading}"
         elif len(folders) == 1:
             r = self.result_for(folders[0])
             what = f"{summary.title(r)} from {summary.when(r['capture'].get('started'))}"
+        elif setup and set(folders) == set(setup.folders):
+            what = f"{setup.name} ({len(folders)} runs)"
         else:
             what = f"these {len(folders)} captures"
         many = len(folders) > 1
@@ -883,9 +1047,10 @@ class App:
             self.render_main()
             self.tabs.select("Compare")
 
-    def _copy_report_of(self, folder: Path) -> None:
+    def _copy_report_of(self, folder: Path, single: bool = False) -> None:
         try:
-            text = report.render(self.result_for(folder), self.goal_key(), self.target_fps())
+            r = self.result_for(folder) if single else self.view_for(folder)
+            text = report.render(r, self.goal_key(), self.target_fps())
         except StopIteration:
             return
         self._to_clipboard(text)
@@ -990,16 +1155,23 @@ class App:
                 self.record_info.get("sub", ""),
                 [],
             )
+        elif self.profile_key and self.heading_for(self.profile_key):
+            self.render_profile()
+            return
         elif result:
+            s = self.setup_for(self.selected[-1])
             self._header(
                 summary.initials(summary.name(result)),
-                summary.title(result),
+                s.name if s and s.kind in feed.NAMED else summary.title(result),
                 summary.subtitle(result),
                 summary.tags(result),
             )
         else:
             where = self.captures_root or capture.DEFAULT_ROOT
             self._header("--", "Ready when you are", f"Captures are saved to {where}", [])
+        if not self.tabs.winfo_manager():
+            self.tabs.pack(fill="x", padx=(px(24), px(24)), after=self.header)
+        self.page_profile.pack_forget()
         two = len(self.selected) == 2
         self.tabs.set_disabled("Compare", not two)
         self.tabs.set_disabled("Report", not result)
@@ -1073,6 +1245,7 @@ class App:
                 r.set(None, "", "recording" if busy == "recording" else "analyzing")
             self._fill_checks([], "Checks run when the capture ends.")
             self._fill_details([])
+            self.runs_panel.pack_forget()
             set_silk(self.scope_title, "Frame time · live")
             self.scope_scale.configure(text="")
             self._paint_channels()
@@ -1100,6 +1273,7 @@ class App:
                 "captures compare.",
             )
             self._fill_details([])
+            self.runs_panel.pack_forget()
             set_silk(self.scope_title, "Frame time")
             self.scope_scale.configure(text="")
             self._paint_channels()
@@ -1133,6 +1307,11 @@ class App:
         set_silk(self.scope_title, "Frame time")
         self._fill_checks(result.get("checks", []), "")
         self._fill_details(summary.details(result))
+        self._fill_runs()
+        set_silk(
+            self.scope_title,
+            "Frame time · newest run that counts" if result.get("stack") else "Frame time",
+        )
         self.load_trace()
 
     def update_recording(self) -> None:
@@ -1209,6 +1388,8 @@ class App:
             ).pack(side="right")
 
     def show_tab(self, name: str) -> None:
+        if self.profile_key:  # the profile has no tabs
+            return
         self.shown = name
         for page in (
             self.page_summary,
@@ -1216,6 +1397,7 @@ class App:
             self.page_game,
             self.page_system,
             self.page_compare,
+            self.page_profile,
         ):
             page.pack_forget()
         result = self.current_result()
@@ -1242,8 +1424,11 @@ class App:
         self.compare_btn.set_enabled(len(self.selected) == 2 and name != "Compare")
 
     def compare_pair(self) -> list[tuple[Path, dict]]:
-        """The two selected captures, older first: A is the reference, B the new run."""
-        pair = [(f, self.result_for(f)) for f in self.selected]
+        """The two selected rows, older first: A is the reference, B the new run.
+
+        Each is (the run whose trace stands for the row, the row's result, runs combined).
+        """
+        pair = [(self.trace_folder(f), self.view_for(f)) for f in self.selected]
         return sorted(pair, key=lambda fr: fr[1]["capture"].get("started", ""))
 
     def fill_compare(self, fa: Path, a: dict, fb: Path, b: dict) -> None:
@@ -1257,8 +1442,8 @@ class App:
         chips.pack(fill="x", pady=(0, px(8)))
         chips.columnconfigure(0, weight=1, uniform="chip")
         chips.columnconfigure(1, weight=1, uniform="chip")
-        for col, (name, res, key, role) in enumerate(
-            (("A", a, "ref", "Reference"), ("B", b, "ch1", "New run"))
+        for col, (name, res, key, role, f) in enumerate(
+            (("A", a, "ref", "Reference", fa), ("B", b, "ch1", "New run", fb))
         ):
             chip = frame(chips, t, "surface1", border="border")
             chip.grid(row=0, column=col, sticky="nsew", padx=(0, px(8)) if col == 0 else 0)
@@ -1269,9 +1454,21 @@ class App:
             cap, s = res["capture"], res["analysis"]["stats"]
             line = frame(chip, t, "surface1")
             line.pack(fill="x", padx=px(16))
-            label(line, t, summary.title(res), bg="surface1").pack(side="left")
+            setup = self.setup_for(f)
+            named = setup and setup.kind in feed.NAMED
+            mono = setup and setup.kind in ("settings", "system")
+            label(
+                line, t, setup.name if named else summary.title(res),
+                font="mono_sm" if mono else "body_sm", bg="surface1",
+            ).pack(side="left")  # fmt: skip
             label(line, t, f"{s['avg_fps']:.1f}", font="mono_sm", bg="surface1").pack(side="right")
-            meta = f"{summary.when(cap.get('started'))} · {s['duration_s']:.0f} s · {s['frames']:,} frames"
+            st = res.get("stack")
+            when, secs = summary.when(cap.get("started")), f"{s['duration_s']:.0f} s"
+            meta = (
+                f"{st['used']} runs · newest {when} · {secs} each"
+                if st
+                else f"{when} · {secs} · {s['frames']:,} frames"
+            )
             row2 = frame(chip, t, "surface1")
             row2.pack(fill="x", padx=px(16), pady=(px(2), px(12)))
             label(row2, t, meta, font="mono_xs", fg="text3", bg="surface1").pack(side="left")
@@ -1637,7 +1834,6 @@ class App:
 
     def _fill_sections(self, page, sections, mono_keys: set[str] = frozenset()) -> None:
         """Bordered sections of key/value rows (System and Game tabs)."""
-        t = self.t
         inner = page.inner
         for child in inner.winfo_children():
             child.destroy()
@@ -1657,34 +1853,287 @@ class App:
             ),
         )
         for title, rows in sections:
-            box = frame(inner, t, "surface1", border="border")
-            box.pack(fill="x", pady=(0, px(8)))
-            head = frame(box, t, "surface1")
-            head.pack(fill="x", padx=px(16), pady=(px(12), px(8)))
-            silk(head, t, title, bg="surface1").pack(side="left")
-            if title == "Hardware":
-                label(head, t, "at capture time", font="mono_xs", fg="text3", bg="surface1").pack(
-                    side="right"
-                )
-            for i, (k, v) in enumerate(rows):
-                if i:
-                    rule(box, t).pack(fill="x", padx=px(16))
-                r = frame(box, t, "surface1")
-                r.pack(fill="x", padx=px(16), pady=px(8))
-                r.columnconfigure(0, minsize=key_w)
-                r.columnconfigure(1, weight=1)
-                if title in mono_keys and k not in ("Read from", "Source"):
-                    key = label(r, t, k, font="mono_sm", fg="text2", bg="surface1", anchor="w")
-                else:
-                    key = silk(r, t, k, bg="surface1", anchor="w")
-                key.grid(row=0, column=0, sticky="nw", pady=(px(2), 0))
-                fg = "text4" if v in ("unknown", "?") else "text1"
-                prose = "body_sm" if not k else "mono_sm"  # a note, not a value
-                RichText(r, t, v, font=prose, mono="mono_sm", fg=fg, mono_fg=fg).grid(
-                    row=0, column=1, sticky="ew"
-                )
-            frame(box, t, "surface1", height=px(6)).pack()
+            note = "at capture time" if title == "Hardware" else ""
+            self._section_box(inner, title, rows, key_w, title in mono_keys, note)
         page.to_top()
+
+    def _section_box(
+        self, parent, title: str, rows, key_w: int, mono: bool = False, note: str = ""
+    ) -> tk.Frame:
+        """A bordered panel of key/value rows."""
+        t = self.t
+        box = frame(parent, t, "surface1", border="border")
+        box.pack(fill="x", pady=(0, px(8)))
+        head = frame(box, t, "surface1")
+        head.pack(fill="x", padx=px(16), pady=(px(12), px(8)))
+        silk(head, t, title, bg="surface1").pack(side="left")
+        if note:
+            label(head, t, note, font="mono_xs", fg="text3", bg="surface1").pack(side="right")
+        for i, (k, v) in enumerate(rows):
+            if i:
+                rule(box, t).pack(fill="x", padx=px(16))
+            r = frame(box, t, "surface1")
+            r.pack(fill="x", padx=px(16), pady=px(8))
+            r.columnconfigure(0, minsize=key_w)
+            r.columnconfigure(1, weight=1)
+            if mono and k not in ("Read from", "Source"):
+                key = label(r, t, k, font="mono_sm", fg="text2", bg="surface1", anchor="w")
+            else:
+                key = silk(r, t, k, bg="surface1", anchor="w")
+            key.grid(row=0, column=0, sticky="nw", pady=(px(2), 0))
+            fg = "text4" if v in ("unknown", "?") else "text1"
+            prose = "body_sm" if not k else "mono_sm"  # a note, not a value
+            RichText(r, t, v, font=prose, mono="mono_sm", fg=fg, mono_fg=fg).grid(
+                row=0, column=1, sticky="ew"
+            )
+        frame(box, t, "surface1", height=px(6)).pack()
+        return box
+
+    # --- the game profile and a stack's runs ---------------------------------------------------
+
+    def render_profile(self) -> None:
+        """A heading's profile in the main column: no tabs, one page."""
+        h = self.heading_for(self.profile_key)
+        goal, target = self.goal_and_target()
+        prof = feed.profile(h, goal, target, (self.settings.get("chosen") or {}).get(h.key))
+        n, runs = len(h.setups), h.runs
+        sub = (
+            f"{'Group' if h.custom else 'Game'} profile · {n} setup{'s' if n != 1 else ''}"
+            f" · {runs} run{'s' if runs != 1 else ''} · {goal.label}"
+        )
+        self._header(summary.initials(h.title), h.title, sub, [])
+        self.tabs.pack_forget()
+        for page in (
+            self.page_summary, self.page_text, self.page_game, self.page_system,
+            self.page_compare,
+        ):  # fmt: skip
+            page.pack_forget()
+        self.fill_profile(prof)
+        self.page_profile.pack(fill="both", expand=True)
+        self.shown = "Profile"
+        self.shown_text = feed.profile_text(prof)
+        self.copy_btn.set_text("Copy profile")
+        self.copy_btn.set_enabled(True)
+        self.folder_btn.set_enabled(False)
+        self.compare_btn.set_enabled(False)
+
+    def fill_profile(self, prof: feed.Profile) -> None:
+        t = self.t
+        page = self.page_profile.inner
+        for child in page.winfo_children():
+            child.destroy()
+        h, best, goal = prof.heading, prof.best, prof.goal
+        if best is None:
+            return
+
+        # the setup to play with
+        box = frame(page, t, "surface1", border="border")
+        box.pack(fill="x", pady=(0, px(8)))
+        head = frame(box, t, "surface1")
+        head.pack(fill="x", padx=px(16), pady=(px(12), px(6)))
+        silk(head, t, "Your settings" if prof.chosen else "Best measured", bg="surface1").pack(
+            side="left"
+        )
+        used = len(best.used_runs)
+        label(
+            head, t, f"{used} run{'s' if used != 1 else ''}", font="mono_xs", fg="text3",
+            bg="surface1",
+        ).pack(side="right")  # fmt: skip
+        body = frame(box, t, "surface1")
+        body.pack(fill="x", padx=px(16), pady=(0, px(14)))
+        mono = best.kind != "label"
+        label(
+            body, t, best.name, font="mono" if mono else "subheading", bg="surface1", anchor="w"
+        ).pack(fill="x")
+        nums = frame(body, t, "surface1")
+        nums.pack(fill="x", pady=(px(10), px(8)))
+        if h.metric:
+            num, unit = feed.metric_text(h.metric, best.value)
+            silk(nums, t, feed.METRIC_SHORT.get(h.metric, h.metric), bg="surface1").pack(
+                side="left", anchor="s", pady=(0, px(5)), padx=(0, px(10))
+            )
+            label(nums, t, num, font="readout", bg="surface1").pack(side="left", anchor="s")
+            label(nums, t, " " + unit, font="mono_xs", fg="text3", bg="surface1").pack(
+                side="left", anchor="s", pady=(0, px(4))
+            )
+        if prof.best_status not in ("base", "na"):
+            level = {"better": "ok", "worse": "warn"}.get(prof.best_status, "idle")
+            fg = {"better": "success", "worse": "warning"}.get(prof.best_status, "text3")
+            vs = frame(nums, t, "surface1")
+            vs.pack(side="left", anchor="s", padx=(px(16), 0), pady=(0, px(5)))
+            Lamp(vs, t, level).pack(side="left", padx=(0, px(6)))
+            label(vs, t, prof.best_change, font="mono_sm", fg=fg, bg="surface1").pack(side="left")
+            label(vs, t, "  vs the base", font="caption", fg="text3", bg="surface1").pack(
+                side="left"
+            )
+        if prof.chosen:
+            why = (
+                "You chose this setup. To change it, right-click another row in the list and"
+                " pick Use as my settings."
+            )
+        elif best is h.base:
+            why = (
+                f"Nothing you tested beat the base for {goal.phrase} yet. Change one setting,"
+                " capture the same scene again, and the best setup shows up here."
+            )
+        else:
+            why = (
+                f"The setup that beats the base by the most for {goal.phrase}. Visual cost isn't"
+                " measured: if it looks worse than you accept, right-click another row and"
+                " pick Use as my settings."
+            )
+        RichText(body, t, why, fg="text2", bg="surface1").pack(fill="x")
+
+        keyw = px(24) + max(
+            [t.fonts["mono_sm"].measure(k) for k, _ in prof.settings]
+            + [t.fonts["mono_sm"].measure(k) for k, _, _ in prof.differs or []]
+            + [px(120)]
+        )
+        if best is not h.base:
+            if prof.differs is None:
+                why = "In-game settings aren't read for this game: the name says what changed."
+                rows = [("", why)]
+            elif not prof.differs:
+                why = "Same in-game settings as the base: the difference is the system or display."
+                rows = [("", why)]
+            else:
+                rows = [(k, f"{a} → {b}") for k, a, b in prof.differs]
+            self._section_box(
+                page, "Changes from the base", rows, keyw, mono=True, note=h.base.name
+            )
+
+        # each tested change, from the setup before
+        p = frame(page, t, "surface1", border="border")
+        p.pack(fill="x", pady=(0, px(8)))
+        ph = frame(p, t, "surface1")
+        ph.pack(fill="x", padx=px(16), pady=(px(12), px(8)))
+        silk(ph, t, "Changes tested", bg="surface1").pack(side="left")
+        label(
+            ph, t, "against the setup before", font="mono_xs", fg="text3", bg="surface1"
+        ).pack(side="right")
+        if not prof.tested:
+            RichText(
+                p, t,
+                "Change one setting at a time and capture the same scene again: each change"
+                " and what it did on this PC shows up here.",
+                fg="text3", bg="surface1",
+            ).pack(fill="x", padx=px(16), pady=(0, px(14)))  # fmt: skip
+        grid = frame(p, t, "surface1")
+        grid.pack(fill="x", padx=px(16), pady=(0, px(10)))
+        grid.columnconfigure(1, weight=1)
+        for i, tc in enumerate(prof.tested):
+            level = {"better": "ok", "worse": "warn"}.get(tc.status, "idle")
+            fg = {"better": "success", "worse": "warning"}.get(tc.status, "text3")
+            Lamp(grid, t, level).grid(row=i, column=0, sticky="w", padx=(0, px(10)), pady=px(5))
+            font = "body_sm" if tc.kind == "label" else "mono_sm"
+            label(grid, t, tc.name, font=font, bg="surface1", anchor="w").grid(
+                row=i, column=1, sticky="ew"
+            )
+            label(grid, t, tc.change, font="mono_sm", fg=fg, bg="surface1", anchor="e").grid(
+                row=i, column=2, sticky="e", padx=(px(12), 0)
+            )
+            label(
+                grid, t, f"×{tc.runs[0]} → ×{tc.runs[1]}", font="mono_xs", fg="text3",
+                bg="surface1", anchor="e",
+            ).grid(row=i, column=3, sticky="e", padx=(px(16), 0))  # fmt: skip
+
+        if prof.settings:
+            self._section_box(
+                page, "In-game settings of this setup", list(prof.settings), keyw, mono=True,
+                note=f"{len(prof.settings)} read",
+            )  # fmt: skip
+        notes = []
+        if prof.left_out:
+            notes.append(
+                f"{prof.left_out} run{'s were' if prof.left_out != 1 else ' was'} left out of"
+                " the combined numbers: far from the other runs of the same setup."
+            )
+        if prof.others:
+            notes.append(
+                f"{prof.others} setup{'s are' if prof.others != 1 else ' is'} another kind of run"
+                " (another length or display), measured against its own base and not part of"
+                " this profile."
+            )
+        for n in notes:
+            RichText(page, t, n, font="caption", fg="text3", bg="background").pack(
+                fill="x", pady=(px(2), 0)
+            )
+        self.page_profile.to_top()
+
+    def _fill_runs(self) -> None:
+        """A stack's runs on the Summary page: which count, and each one's numbers."""
+        t = self.t
+        p = self.runs_panel
+        for child in p.winfo_children():
+            child.destroy()
+        s = self.setup_for(self.selected[-1]) if self.selected else None
+        if not s or s.count < 2:
+            p.pack_forget()
+            return
+        head = frame(p, t, "surface1")
+        head.pack(fill="x", padx=px(16), pady=(px(12), px(8)))
+        silk(head, t, "Runs", bg="surface1").pack(side="left")
+        used = len(s.used_runs)
+        note = (
+            f"mean of {used} · {s.count - used} left out" if used < s.count else f"mean of {used}"
+        )
+        label(head, t, note, font="mono_xs", fg="text3", bg="surface1").pack(side="right")
+        grid = frame(p, t, "surface1")
+        grid.pack(fill="x", padx=px(16), pady=(0, px(10)))
+        cols = ("", "Started", "Length", "Average", "1% low", "Hitches", "")
+        for c, name in enumerate(cols):
+            grid.columnconfigure(c, weight=1 if c == 6 else 0)
+            if name:
+                silk(grid, t, name, bg="surface1").grid(
+                    row=0, column=c, sticky="w" if c < 3 else "e", padx=(0, px(20)), pady=(0, px(4))
+                )
+        for i, ((folder, r), ok) in enumerate(zip(reversed(s.runs), reversed(s.used)), start=1):
+            st = r["analysis"]["stats"]
+            cells = [
+                summary.when(r["capture"].get("started")),
+                f"{st['duration_s']:.0f} s",
+                f"{st['avg_fps']:,.1f}",
+                f"{st['p1_fps']:,.1f}",
+                f"{st.get('spike_time_pct') or 0:.2f}%",
+            ]
+            lamp = Lamp(grid, t, "ok" if ok else "warn")
+            lamp.grid(row=i, column=0, sticky="w", padx=(0, px(10)), pady=px(4))
+            widgets: list[tk.Widget] = [lamp]
+            for c, text in enumerate(cells, start=1):
+                w = label(grid, t, text, font="mono_sm", fg="text1" if ok else "text3",
+                          bg="surface1")  # fmt: skip
+                w.grid(row=i, column=c, sticky="w" if c < 3 else "e", padx=(0, px(20)))
+                widgets.append(w)
+            word = label(
+                grid, t, "" if ok else "left out", font="caption", fg="warning", bg="surface1"
+            )
+            word.grid(row=i, column=6, sticky="w")
+            widgets.append(word)
+            for w in widgets:
+                w.bind("<Button-3>", lambda e, f=folder: self._run_menu(e, s, f))
+                w.bind("<Double-1>", lambda _e, f=folder: _open(f))
+        if s.spread:
+            RichText(
+                p, t,
+                "These runs disagree beyond run-to-run noise and none stands out. Run the scene"
+                " once more, or split them if something changed between them.",
+                fg="warning", bg="surface1",
+            ).pack(fill="x", padx=px(16), pady=(0, px(12)))  # fmt: skip
+        p.pack(fill="x", pady=(0, px(8)), before=self.low_row)
+
+    def _run_menu(self, event, s: feed.Setup, folder: Path) -> None:
+        m = self._menu()
+        m.add_command(label="Open folder", command=lambda: _open(folder))
+        m.add_command(
+            label="Copy this run's report", command=lambda: self._copy_report_of(folder, True)
+        )
+        m.add_separator()
+        m.add_command(label="Take out of the stack", command=lambda: self.split_run(s, folder))
+        m.add_command(label="Delete this run…", command=lambda: self.ask_delete([folder]))
+        try:
+            m.tk_popup(event.x_root, event.y_root)
+        finally:
+            m.grab_release()
 
     # --- data ---------------------------------------------------------------------------------
 
@@ -1692,12 +2141,17 @@ class App:
         return next(r for f, r in self.captures if f == folder)
 
     def current_result(self) -> dict | None:
-        if not self.selected:
+        if not self.selected or self.profile_key:
             return None
         try:
-            return self.result_for(self.selected[-1])
+            return self.view_for(self.selected[-1])
         except StopIteration:
             return None
+
+    def trace_folder(self, folder: Path) -> Path:
+        """The run whose trace stands for a row (the newest run that counts)."""
+        s = self.setup_for(folder)
+        return s.trace_folder if s else folder
 
     def refresh_history(self, select_first=False, select: Path | None = None) -> None:
         self.captures = [
@@ -1709,12 +2163,17 @@ class App:
         self.selected = [f for f in self.selected if f in known]
         if select and select in known:
             self.selected = [select]
+            self.profile_key = None
         elif (select_first or not self.selected) and self.captures:
             self.selected = [self.captures[0][0]]
         self.render_rail()
         self.render_main()
 
     def select(self, folder: Path, add: bool) -> None:
+        if self.profile_key:  # leaving the profile: a plain click shows the row
+            self.profile_key = None
+            if not add:
+                self.selected = []
         if add and self.selected and folder not in self.selected:
             self.selected = [self.selected[-1], folder]
         elif add and folder in self.selected and len(self.selected) == 2:
@@ -1729,7 +2188,7 @@ class App:
             self.tabs.select("Compare")
 
     def load_trace(self) -> None:
-        folder = self.selected[-1] if self.selected else None
+        folder = self.trace_folder(self.selected[-1]) if self.selected else None
         if folder is None:
             return
         if folder in self.traces:
@@ -2140,6 +2599,7 @@ class App:
         if kind == "hotkey":
             self.toggle_capture()
         elif kind == "started":
+            self.profile_key = None
             if self.sound_var.get():
                 capture.beep("start")
             self.capture_error = None
@@ -2160,8 +2620,13 @@ class App:
             self.traces.pop(folder, None)
             self.refresh_history(select=folder)
             self.set_status()
-            self.shown_text = p["report"]
-            self.copy_shown(note="Report copied to the clipboard.")
+            stack = self.setup_for(folder)
+            if stack and stack.count > 1:  # a repeat run: the report of the runs combined
+                self.shown_text = self.report_text(stack.result)
+                note = f"Report of {len(stack.used_runs)} runs combined copied to the clipboard."
+            else:
+                self.shown_text, note = p["report"], "Report copied to the clipboard."
+            self.copy_shown(note=note)
             self.kick_share()
         elif kind == "error":
             if self.sound_var.get():
@@ -2197,7 +2662,8 @@ class App:
             self.loading.discard(p["folder"])
             if (
                 self.selected
-                and self.selected[-1] == p["folder"]
+                and self.trace_folder(self.selected[-1]) == p["folder"]
+                and not self.profile_key
                 and not (
                     self.recorder and self.recorder.state in ("recording", "stopping", "analyzing")
                 )
@@ -2228,7 +2694,7 @@ class App:
         if not self.shown_text:
             return
         self._to_clipboard(self.shown_text)
-        what = "Comparison" if self.shown == "Compare" else "Report"
+        what = {"Compare": "Comparison", "Profile": "Profile"}.get(self.shown, "Report")
         if self.shown == "Compare" and len(getattr(self, "compare_folders", ())) == 2:
             self.note_comparison(*self.compare_folders, copied=True)
         self.show_note(

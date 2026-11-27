@@ -751,17 +751,24 @@ The select trigger's arrow is a `ti-chevron-down` drawn inside the field (`--tex
 | Target | Second row, only for "Hit a target FPS": mono field (`--mono-sm`) with the unit `FPS` in `--text3` after it; placeholder `empty = refresh rate` in `--text4` mono |
 | Effect | The goal leads the summary verdict, the report and the compare verdict of whatever is shown, and is saved with the next capture |
 
-## 38. CAPTURE LIST (rail pattern)
+## 38. CAPTURE LIST (rail pattern): a feed of setups
+
+The list shows what the user tested, not every run. One row is one **setup**: captures of the same game, one after another, with nothing changed between them (same in-game settings, system, Windows settings and display, lengths within 25%, no new label; when settings aren't read, also the same limit). Repeat runs stack into that row. Logic: `frametrace/feed.py`.
 
 | Part | Treatment |
 |------|-----------|
-| Group heading | 10px chevron (1.5px stroke, square caps, `--text3`; right when folded, down when open), silk label, mono count in `--text4` right-aligned; 10px above, 4px below; click folds, right-click opens the group menu |
-| Heading color | `--text3` for a game's default group, `--text2` for a group the user named |
-| Order | Groups by their newest capture; captures inside newest first |
-| Row title | The user's label, else the game's name; meta line and FPS as in section 4 |
-| Row menu | Open folder, Copy report / Rename…, Move to group ▸ (the user's groups, New group…, Back under its game) / Compare with selected / Delete… — group and delete act on both rows when two are selected |
-| Group menu | Rename group…, Ungroup (user groups only) / Delete all N captures… |
-| Keys | F2 renames the selected capture, Delete asks to delete it, ↑ ↓ follow the list as shown (folded groups skipped) |
+| Heading | 10px chevron (1.5px stroke, square caps, `--text3`; right when folded, down when open) — click folds. Silk name — click opens the profile (section 46); `--text1` while its profile is shown, else `--text3` for a game, `--text2` for a group the user named. Right: the goal's metric as silk in `--text4` (`AVERAGE`, `1% LOW`, `LATENCY`, `HITCHES`, `AT TARGET`), or the row count in mono `--text4` when folded. 10px above, 4px below |
+| Headings | One per game (captures that only know their exe join the game's heading when another capture of the same exe has the name), or per group the user made (right-click › Move to group) |
+| Order | Headings by their newest run; setups newest first |
+| Row | One line, 7px above and below: name, `×N`, value, change. Selected: `--surface2` plus the 2px `--accent` left edge; A / B in mono when two rows are compared; no selection while a profile is shown |
+| Name | The user's label (Plex Sans `body_sm`), else what changed from the setup before in Plex Mono: `shadow_quality 2 → 1` (a key namespace three or more keys share is dropped: `videocfg_`, `sg.`), `+N` for more changes, `RAM speed 4800 → 5600 MT/s` for a system change, else the capture time (`26 Nov 22:11`). Cut with an ellipsis to the room left |
+| ×N | Mono `--text3` right after the name, only for stacks. `×2/3` when a run was left out; `--warning` when one was left out or the runs disagree (`spread`) |
+| Value | The goal's first deciding metric, runs combined, mono `--text1`, right-aligned in a fixed column (no unit: the heading names it) |
+| Change | Fixed column: lamp + mono `mono_xs` change against the row's base (`+7.5%` success, `-1.3%` warning), `SAME` with the idle lamp inside run-to-run noise, silk `BASE` on a base that other rows are measured against, `n/a` in `--text4`, empty when nothing is measured against it |
+| Base | Each row's base is the oldest setup it can be compared with (same display, lengths within 25%), unless the user pinned one; a pin replaces the base of its own kind of run. So benchmark runs and long live-match runs each get a base |
+| Row menu | Open folder, Copy report / Rename…, Set as base, Use as my settings (or Stop using…) / Move to group ▸, Split into single runs (stacks), Stack with the row below (split rows) / Compare with selected / Delete (N runs)… — rename, group and delete act on every run of the row (and of both rows when two are selected) |
+| Group menu | Open game profile / Rename group…, Ungroup (user groups) or Move all to a group… (games) / Delete all N captures… |
+| Keys | F2 renames the selected row, Delete asks to delete its runs, ↑ ↓ follow the rows as shown (folded headings skipped) |
 
 ## 39. TEXT DIALOG
 
@@ -827,3 +834,31 @@ The AI's answer to a report or comparison is the one Frametrace surface drawn ou
 | Numbers | Always with a unit (`FPS`, `ms`, `%`, `pp`); expected effects as ranges with a source (`measured`, `community (N people)`, `guide`, `engine`) |
 | Footer | `One change per run. Same scene, same length, then paste the comparison.` |
 | Voice | Bench engineer (the Voice line in `../SKILL.md`): no hype, no emoji, no prose around the block unless the user asks why |
+
+## 45. RUNS (Summary, stacks only)
+
+Under the readouts, when the selected row stacks two or more runs: which runs count and each one's numbers, so the combined numbers can be trusted.
+
+| Part | Value |
+|------|-------|
+| Panel | `--surface1`, 1px `--border`; silk `RUNS`, right: mono `mean of N` (`· M left out`) in `--text3` |
+| Columns | Silk heads: STARTED, LENGTH, AVERAGE, 1% LOW, HITCHES; values in mono, text columns left, numbers right; newest first |
+| Lamp | Success for a run that counts, warning for one left out (plus the caption `left out` in `--warning`; its numbers in `--text3`) |
+| Left out | With three or more runs, a run whose goal metric is further from the median than the run-to-run noise band (section 32) is left out, unless most runs disagree. With two that disagree nothing is left out: a warning sentence asks for another run or a split |
+| Combined | Means of the runs that count; max frame time is the longest; per-second FPS is pooled (so seconds at target is over all of them). The scope shows the newest run that counts (`FRAME TIME · NEWEST RUN THAT COUNTS`); the header subtitle says `N runs combined` |
+| Menu | Right-click a run: Open folder, Copy this run's report / Take out of the stack, Delete this run… Double-click opens its folder |
+
+## 46. GAME PROFILE (main column)
+
+Click a heading (or right-click › Open game profile): what the tests of that game add up to, for the rail's goal. No tabs; the action row's first button becomes Copy profile, a text block for the AI (`feed.profile_text`).
+
+| Part | Value |
+|------|-------|
+| Header | Initials tile, the game's name, mono subtitle `Game profile · N setups · N runs · <goal>` |
+| Best panel | Silk `BEST MEASURED` (or `YOUR SETTINGS` when the user picked one with Use as my settings), mono run count right; the setup's name (mono for a change, `subheading` for a label); the metric as silk + readout number + unit, then lamp + change `vs the base`; one sentence in `--text2`: why this one, and that visual cost isn't measured |
+| Best | The user's choice, else the setup that beats the base by the most for the goal, among rows measured against the newest row's base (the kind of run being tuned now), else the base |
+| Changes from the base | Section box (mono keys): every in-game setting the best setup differs in, `base → best`; right note: the base's name |
+| Changes tested | Lamp + name + change (mono, status colour) + `×a → ×b` runs, one row per change from a setup to the next that can be compared; newest first. Empty: an invitation to change one setting per run |
+| Settings | Section box of the best setup's in-game settings, every key in mono, `N read` right |
+| Notes | Captions in `--text3`: runs left out, setups of another kind of run with their own base |
+

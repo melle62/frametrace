@@ -195,18 +195,35 @@ def write_capture(
 
 
 def demo_captures(root: Path) -> None:
+    """CS2 benchmark runs as a tuning session: a base run three times (one hitchy, left out of
+    the stack), then one change per run; a capped run of another length; DayZ; a short FH6."""
     hitches = ((23.0, 9.6), (61.4, 14.8), (84.2, 11.2))
+    hitchy = tuple((0.5 + i * 0.19, 9.5) for i in range(500))  # ~1.2% of frames: the 1% low
+    lows = {"key": "lows"}
+    write_capture(
+        root, "20261126-2246-cs2", "2026-11-26T22:46:00+01:00",
+        frames(8, 100, 2.12, 0.94, 1.0, latency_ms=6.4, hitches=hitches[:1]),
+        settings=cs2_settings(videocfg_shadow_quality="1", msaa_samples="2"), goal=lows,
+    )  # fmt: skip
     write_capture(
         root, "20261126-2241-cs2", "2026-11-26T22:41:00+01:00",
         frames(1, 100, 2.31, 0.94, 1.0, latency_ms=6.6, hitches=hitches),
-        settings=cs2_settings(videocfg_shadow_quality="1"), goal={"key": "lows"},
-        user={"label": "Shadows medium", "group": "Benchmark map"},
+        settings=cs2_settings(videocfg_shadow_quality="1"), goal=lows,
+    )  # fmt: skip
+    write_capture(
+        root, "20261126-2237-cs2", "2026-11-26T22:37:00+01:00",
+        frames(7, 100, 2.28, 0.94, 1.0, latency_ms=7.0, hitches=hitchy),
+        settings=cs2_settings(), goal=lows,
     )  # fmt: skip
     write_capture(
         root, "20261126-2234-cs2", "2026-11-26T22:34:00+01:00",
+        frames(6, 100, 2.28, 0.94, 1.0, latency_ms=7.0, hitches=hitches[2:]),
+        settings=cs2_settings(), goal=lows,
+    )  # fmt: skip
+    write_capture(
+        root, "20261126-2230-cs2", "2026-11-26T22:30:00+01:00",
         frames(2, 100, 2.28, 0.94, 1.0, latency_ms=7.1, hitches=hitches[1:]),
-        settings=cs2_settings(), goal={"key": "lows"},
-        user={"label": "Baseline", "group": "Benchmark map"},
+        settings=cs2_settings(), goal=lows, user={"label": "Baseline"},
     )  # fmt: skip
     write_capture(
         root, "20261126-2211-cs2", "2026-11-26T22:11:00+01:00",
@@ -326,24 +343,35 @@ def shots(out: Path, themes: list[str], readme: bool) -> None:
         for tab in ("Report", "Game", "System"):
             app.tabs.select(tab)
             grab(root, out / f"{name}-{tab.lower()}.png")
-        folders = [f for f, _ in app.captures]
-        app.select(folders[1], add=False)
-        app.select(folders[0], add=True)
+        app.tabs.select("Summary")
+        rows = list(app.rail_order)  # one per setup, newest first
+        msaa, shadows, base, capped, dayz, fh6 = rows
+        app.select(base, add=False)
+        grab(root, out / f"{name}-stack.png")
+        app.page_summary.canvas.yview_moveto(1.0)
+        grab(root, out / f"{name}-stack-bottom.png")
+        app.page_summary.canvas.yview_moveto(0.0)
+        app.select(shadows, add=False)
+        app.select(msaa, add=True)
         grab(root, out / f"{name}-compare.png")
         app.page_compare.canvas.yview_moveto(1.0)
         grab(root, out / f"{name}-compare-bottom.png")
-        for i, tag in ((2, "capped"), (3, "cpu"), (4, "no-gpu")):
-            app.select(folders[i], add=False)
+        app.open_profile("game:Counter-Strike 2")
+        grab(root, out / f"{name}-profile.png")
+        app.page_profile.canvas.yview_moveto(1.0)
+        grab(root, out / f"{name}-profile-bottom.png")
+        for folder, tag in ((capped, "capped"), (dayz, "cpu"), (fh6, "no-gpu")):
+            app.select(folder, add=False)
             grab(root, out / f"{name}-{tag}.png")
-        app.ask_delete([folders[3]])
+        app.ask_delete([dayz])
         grab(root, out / f"{name}-confirm-delete.png")
         app.cancel_confirm()
-        app.toggle_group("Benchmark map")
+        app.toggle_group("Counter-Strike 2")
         grab(root, out / f"{name}-group-folded.png")
-        app.toggle_group("Benchmark map")
+        app.toggle_group("Counter-Strike 2")
         root.after(400, _shoot_and_close, root, out / f"{name}-rename-dialog.png")
-        app.rename_capture(folders[0])
-        app.select(folders[3], add=False)
+        app.rename_capture(msaa)
+        app.select(dayz, add=False)
         app.tabs.select("Game")
         grab(root, out / f"{name}-game-unread.png")
         app.tabs.select("Summary")
@@ -354,7 +382,7 @@ def shots(out: Path, themes: list[str], readme: bool) -> None:
         app.goal_var.set(goals.GOALS["avg_fps"].label)
         app.target_var.set("")
         app.apply_goal()
-        app.select(folders[0], add=False)
+        app.select(msaa, add=False)
         app.recorder = _Recording()
         app.handle("started", {"foreground": "cs2.exe"})
         grab(root, out / f"{name}-recording.png")
