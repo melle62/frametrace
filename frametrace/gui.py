@@ -71,6 +71,7 @@ DEFAULTS = {
     "length_s": 30,
     "manual": False,
     "process_name": "",
+    "benchmark": "",  # the tag the next captures get ("Mirage Benchmark"); empty: none
     "sound": True,
     "theme": "dark",
     "goal": goals.DEFAULT_GOAL,
@@ -166,6 +167,7 @@ class App:
         self.manual_var = tk.BooleanVar(value=self.settings["manual"])
         self.length_var = tk.StringVar(value=str(self.settings["length_s"]))
         self.process_var = tk.StringVar(value=self.settings["process_name"])
+        self.benchmark_var = tk.StringVar(value=self.settings.get("benchmark") or "")
         self.sound_var = tk.BooleanVar(value=self.settings["sound"])
         self.theme_var = tk.StringVar(value=self.settings.get("theme", "dark"))
         self.goal_var = tk.StringVar(value=goals.get(self.settings.get("goal")).label)
@@ -320,7 +322,7 @@ class App:
         sec = frame(rail, t)
         sec.pack(fill="x", padx=px(16), pady=(px(14), px(12)))
         key_w = px(12) + max(
-            t.fonts["body_sm"].measure(w) for w in ("Hotkey", "Length", "Game")
+            t.fonts["body_sm"].measure(w) for w in ("Hotkey", "Length", "Game", "Benchmark")
         )
         fold = tk.Frame(sec, bg=t.c["background"], cursor="hand2")
         fold.pack(fill="x")
@@ -332,6 +334,27 @@ class App:
         self.fold_sum.pack(side="right")
         for w in (fold, self.fold_chev, fold_name, self.fold_sum):
             w.bind("<Button-1>", lambda _e: self.toggle_capture_settings())
+        # the benchmark is the one recording setting that changes with the scene: it stays open
+        # under RECORDING's title while the rest folds. Type one, or pick a tag a capture has
+        bench = frame(sec, t)
+        bench.pack(fill="x", pady=(px(8), 0))
+        bench.columnconfigure(0, minsize=key_w)
+        bench.columnconfigure(1, weight=1)
+        label(bench, t, "Benchmark", fg="text2").grid(row=0, column=0, sticky="w")
+        self.benchmark_box = ttk.Combobox(
+            bench,
+            textvariable=self.benchmark_var,
+            values=self.benchmark_tags(),
+            postcommand=self._fill_benchmarks,
+            font=t.fonts["body_sm"],
+        )
+        self.benchmark_box.grid(row=0, column=1, sticky="ew")
+        self.benchmark_box.bind("<<ComboboxSelected>>", lambda _e: self.apply_benchmark())
+        self.benchmark_box.bind("<Return>", lambda _e: self.apply_benchmark())
+        self.benchmark_box.bind("<FocusOut>", lambda _e: self.apply_benchmark(), add="+")
+        placeholder(
+            self.benchmark_box, t, self.benchmark_var, "e.g. Mirage Benchmark", font="body_sm"
+        )
         self.capture_more = frame(sec, t)
         grid = frame(self.capture_more, t)
         grid.pack(fill="x", pady=(px(4), 0))
@@ -464,6 +487,36 @@ class App:
         self.rail_w = px(max(RAIL_MIN, min(RAIL_MAX, logical)))
         self.rail.configure(width=self.rail_w)
         self.render_rail()
+
+    def benchmark_tags(self) -> list[str]:
+        """Benchmark tags to pick from: the one being typed, then every tag a capture has,
+        the newest used first."""
+        tags = feed.benchmarks(getattr(self, "captures", []) or [])
+        mine = (self.settings.get("benchmark") or "").strip()
+        if mine and mine.casefold() not in {g.casefold() for g in tags}:
+            tags.insert(0, mine)
+        return tags
+
+    def _fill_benchmarks(self) -> None:
+        try:
+            self.benchmark_box.configure(values=self.benchmark_tags())
+        except (tk.TclError, AttributeError):
+            pass
+
+    def apply_benchmark(self) -> None:
+        """The typed or picked tag goes on the next captures. A tag that matches an existing
+        one apart from case takes that one's spelling, so "mirage benchmark" stays one tag."""
+        text = " ".join(self.benchmark_var.get().split())[:80]
+        same = next((g for g in self.benchmark_tags() if g.casefold() == text.casefold()), None)
+        if same and same != text:
+            text = same
+        if text != self.benchmark_var.get():
+            self.benchmark_var.set(text)
+        if text != (self.settings.get("benchmark") or ""):
+            self.settings["benchmark"] = text
+            save_settings(self.settings)
+            self.set_status()
+        self._fill_benchmarks()
 
     def _capture_summary(self) -> str:
         """The folded recording settings in one mono line: F10 · 30 s · auto."""
@@ -853,7 +906,7 @@ class App:
         name = s.name
         if self.t.fonts[font].measure(name) <= width:
             return [name]
-        most = 3 if s.kind == "label" else 2  # the user's own names get a third line
+        most = 3 if s.kind in feed.TYPED else 2  # the user's own names get a third line
         change = s.kind in ("settings", "system")
         wrapped = self._wrap(self._keep_together(name) if change else name, font, width, most)
         if wrapped:
@@ -939,7 +992,7 @@ class App:
         widgets: list[tk.Widget] = [row]
 
         # the name first: it decides the row's height (one line, or two when it's long)
-        font = "body_sm" if s.kind == "label" else "mono_sm"  # keys and times are mono
+        font = "body_sm" if s.kind in feed.TYPED else "mono_sm"  # keys and times are mono
         fg = "text3" if child else "text1" if s.kind in feed.NAMED else "text2"
         step, first = px(16), px(6)  # the heading's chevron starts 6px in
         gutter_w = first + step * level + px(18)  # then a chevron's width and an 8px gap
@@ -1219,6 +1272,7 @@ class App:
                 label="Copy this run's report",
                 command=lambda: self._copy_report_of(folder, True),
             )
+            m.add_cascade(label="Benchmark", menu=self._benchmark_menu(m, [folder]))
             m.add_separator()
             m.add_command(label="Take out of the bundle", command=lambda: self.unbundle(s))
             m.add_command(label="Delete this run…", command=lambda: self.ask_delete([folder]))
@@ -1272,6 +1326,7 @@ class App:
             state="normal" if any(self._group_of(f) for f in targets) else "disabled",
         )
         m.add_cascade(label="Move to group", menu=sub)
+        m.add_cascade(label="Benchmark", menu=self._benchmark_menu(m, targets))
         m.add_separator()
         m.add_command(
             label="Compare with selected",
@@ -1284,6 +1339,45 @@ class App:
             m.tk_popup(event.x_root, event.y_root)
         finally:
             m.grab_release()
+
+    def _benchmark_menu(self, parent: tk.Menu, folders: list[Path]) -> tk.Menu:
+        """Tag runs with a benchmark: an existing tag, a new one, or none. A tick marks the
+        tag every one of these runs already has."""
+        sub = self._menu(parent)
+        have = {summary.benchmark(self.result_for(f)) for f in folders if self._has(f)}
+        now = next(iter(have)) if len(have) == 1 else ""
+        for g in self.benchmark_tags():
+            sub.add_command(
+                label=("✓ " if g == now else "    ") + g,
+                command=lambda g=g: self._save_user(folders, benchmark=g),
+            )
+        if self.benchmark_tags():
+            sub.add_separator()
+        sub.add_command(label="New benchmark…", command=lambda: self.ask_benchmark(folders))
+        sub.add_command(
+            label="No benchmark",
+            command=lambda: self._save_user(folders, benchmark=None),
+            state="normal" if any(have) else "disabled",
+        )
+        return sub
+
+    def _has(self, folder: Path) -> bool:
+        return any(f == folder for f, _ in self.captures)
+
+    def ask_benchmark(self, folders: list[Path]) -> None:
+        runs = f"{len(folders)} runs" if len(folders) > 1 else "this run"
+        text = TextDialog.ask(
+            self,
+            "Benchmark",
+            f"The scene {runs} benchmarked, like a map or a built-in benchmark. Runs of one"
+            " benchmark are measured against each other.",
+            "",
+            choices=self.benchmark_tags(),
+        )
+        if text is not None and text.strip():
+            text = " ".join(text.split())
+            same = next((g for g in self.benchmark_tags() if g.casefold() == text.casefold()), text)
+            self._save_user(folders, benchmark=same)
 
     def _menu(self, parent=None) -> tk.Menu:
         t = self.t
@@ -1405,7 +1499,7 @@ class App:
             return None
 
     def _save_user(self, folders: list[Path], **fields) -> None:
-        """Write label/group into each capture and refresh the list and the views."""
+        """Write label/group/bundle/benchmark into each capture and refresh the list and views."""
         failed = 0
         for folder in folders:
             try:
@@ -1628,9 +1722,13 @@ class App:
                 out = ", left out of the bundle" if s.status == "out" else ""
                 sub = f"Run {i} of {s.parent.count}{out} · {sub}"
                 s = s.parent
+            title = s.name if s and s.kind in feed.NAMED else summary.title(result)
+            tag = summary.benchmark(result)
+            if tag and tag != title:  # the scene, unless the title already says it
+                sub = f"{tag} · {sub}"
             self._header(
                 summary.initials(summary.name(result)),
-                s.name if s and s.kind in feed.NAMED else summary.title(result),
+                title,
                 sub,
                 summary.tags(result),
             )
@@ -2410,7 +2508,7 @@ class App:
         ).pack(side="right")  # fmt: skip
         body = frame(box, t, "surface1")
         body.pack(fill="x", padx=px(16), pady=(0, px(14)))
-        mono = best.kind != "label"
+        mono = best.kind not in feed.TYPED
         label(
             body, t, best.name, font="mono" if mono else "subheading", bg="surface1", anchor="w"
         ).pack(fill="x")
@@ -2494,7 +2592,7 @@ class App:
             level = {"better": "ok", "worse": "warn"}.get(tc.status, "idle")
             fg = {"better": "success", "worse": "warning"}.get(tc.status, "text3")
             Lamp(grid, t, level).grid(row=i, column=0, sticky="w", padx=(0, px(10)), pady=px(5))
-            font = "body_sm" if tc.kind == "label" else "mono_sm"
+            font = "body_sm" if tc.kind in feed.TYPED else "mono_sm"
             label(grid, t, tc.name, font=font, bg="surface1", anchor="w").grid(
                 row=i, column=1, sticky="ew"
             )
@@ -2955,6 +3053,7 @@ class App:
             process_name=self.process_var.get().strip() or None,
             goal=self.goal_key(),
             target_fps=self.target_fps(),
+            benchmark=self.benchmark_var.get().strip() or None,
         )
 
     def length_seconds(self) -> int:
@@ -3016,9 +3115,15 @@ class App:
                 if self.manual_var.get()
                 else f"a {self.length_seconds()} s capture"
             )
+            tag = self.benchmark_var.get().strip()
+            if tag:
+                what += " of "
             label(hint, t, f" in game to start {what}", font="caption", fg="text3").pack(
                 side="left"
             )
+            if tag:  # the tag the run will get, in the user's words
+                label(hint, t, self._fit(tag, "caption", px(220)), font="caption",
+                      fg="text1").pack(side="left")  # fmt: skip
             self.start_btn.set_text("Start capture")
         self.draw_progress()
 
@@ -3039,6 +3144,7 @@ class App:
             length_s=self.length_seconds(),
             manual=self.manual_var.get(),
             process_name=self.process_var.get().strip(),
+            benchmark=" ".join(self.benchmark_var.get().split())[:80],
             sound=self.sound_var.get(),
             goal=self.goal_key(),
             target_fps=self.target_fps() or "",

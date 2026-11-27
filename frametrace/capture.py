@@ -54,6 +54,7 @@ class CaptureSettings:
     process_name: str | None = None  # None = auto-detect
     goal: str = goals.DEFAULT_GOAL  # see goals.GOALS
     target_fps: int | None = None  # for the "target" goal; None = display refresh rate
+    benchmark: str | None = None  # the user's tag for the scene, e.g. "Mirage Benchmark"
 
 
 def _popen_flags() -> int:
@@ -270,6 +271,9 @@ class Recorder:
             settings=found,
             goal={"key": settings.goal, "target_fps": settings.target_fps},
         )
+        tag = (settings.benchmark or "").strip()[:80]
+        if tag:  # the scene the user named before the run; the list keeps one base per tag
+            result["user"] = {**(result.get("user") or {}), "benchmark": tag}
 
         folder: Path = ctx["folder"]
         named = folder.with_name(f"{folder.name}-{_safe(target.name.removesuffix('.exe'))}")

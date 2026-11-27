@@ -41,6 +41,10 @@ wrapping the PresentMon console 2.6.0. MIT. Alpha.
   and the rail's width drags (280-640 px). Not checked on Windows yet: guide lines and chevrons
   at 100%, 125% and 150%, clicking a bundle's chevron, the goal controls at narrow widths,
   dragging the rail's edge, two- and three-line rows.
+- Benchmark tags (`user.benchmark` in `result.json`): the rail's Benchmark field tags the next
+  captures with the scene ("Mirage Benchmark"); its list holds every tag captures already have,
+  and right-click › Benchmark retags runs. Each tag gets its own base, and a row is named after
+  the change from the run of the same benchmark before it. Not checked on Windows yet.
 - Live services: a Supabase inbox (project `frametrace`, eu-north-1) receives opt-in shared
   captures; a daily export (02:23 UTC) publishes them to `melle62/frametrace-data`; a weekly
   workflow (Mondays 04:41 UTC) opens a PR that updates the game skills' community-data tables.
