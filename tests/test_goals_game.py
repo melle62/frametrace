@@ -321,6 +321,15 @@ def test_source2_shipped_defaults_never_override_the_user(tmp_path):
     assert "machine_convars_default" not in found.source
 
 
+def test_still_read_applies_todays_filters_to_saved_settings():
+    still = gamesettings.still_read
+    assert not still("Source 2 video config", "cpu_level", "3")  # filtered since 44772ac
+    assert still("Source 2 video config", "msaa_samples", "4")
+    assert still("Unity PlayerPrefs (registry)", "cpu_level", "3")  # only Source 2 drops it
+    assert not still("Unreal Engine GameUserSettings.ini", "WindowPosition", "(X=0,Y=0)")
+    assert not still("Unity PlayerPrefs (registry)", "LastSave", r"C:\Users\me\save.dat")
+
+
 def _with_settings(r, pairs, reader="x"):
     r["game_settings"] = {"reader": reader, "source": "y", "settings": [list(p) for p in pairs]}
     return r

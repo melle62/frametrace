@@ -62,6 +62,21 @@ def keep(key: str, value: str) -> bool:
     return not (len(value) > MAX_VALUE_LEN or "\\" in value or "/" in value or "@" in value)
 
 
+def still_read(reader: str, key: str, value: str) -> bool:
+    """Whether today's reader would still report this setting from a saved capture.
+
+    A capture keeps what the reader of its day read. A key a newer reader leaves out (Source 2's
+    cpu_level, a stricter privacy filter) isn't something the user changed, while a key a game
+    writes only once it's set (Unity PlayerPrefs) is.
+    """
+    value = str(value)
+    if not keep(key, value):
+        return False
+    if reader.startswith("Source 2") and key in SOURCE2_AUTODETECT:
+        return False
+    return not (reader.startswith("Unreal") and "(" in value)
+
+
 def _short(path: Path | str) -> str:
     """Path with the user's home shortened to %USERPROFILE%, so no user name leaks."""
     s = str(path)
