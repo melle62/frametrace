@@ -264,3 +264,17 @@ def test_window_shows_setups_and_the_profile(tk_root, tmp_path, monkeypatch):
     assert app.confirm[0].startswith("Delete EXPO on (2 runs)?")
     app.cancel_confirm()
     app.on_close()
+
+
+def test_keys_only_one_run_has_are_not_changes():
+    """An older Frametrace read cpu_level, a newer one filters it: that's no settings change."""
+    old = run(settings={"cpu_level": "3"})
+    new = run(seed=2)
+    new[1]["game_settings"]["settings"] = [
+        kv for kv in new[1]["game_settings"]["settings"] if kv[0] != "cpu_level"
+    ]
+    many = run(seed=3, settings={"msaa_samples": "2", "videocfg_ao_detail": "1", "fullscreen": "0"})
+    [h] = feed.build(newest_first(old, new, many), AVG)
+    first, three = h.oldest_first
+    assert first.count == 2  # stacked: only cpu_level differs, and only one run has it
+    assert three.name == "msaa_samples 4 → 2 +2 more"

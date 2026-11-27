@@ -83,6 +83,14 @@ def _settings(result: dict) -> list:
     return (result.get("game_settings") or {}).get("settings") or []
 
 
+def settings_changed(a: dict, b: dict) -> list[tuple[str, str, str]] | None:
+    """In-game settings that changed from a to b, as summary.settings_changes says, minus keys
+    only one of them has: a newer Frametrace reads or filters other keys (CS2's cpu_level was
+    dropped), which isn't something the user changed."""
+    changes = summary.settings_changes(a, b)
+    return None if changes is None else [c for c in changes if "-" not in (c[1], c[2])]
+
+
 def _display(result: dict) -> tuple:
     d = quality.main_display(result)
     mode = result["analysis"]["display"].get("present_mode")
@@ -228,7 +236,7 @@ def continues(setup: Setup, result: dict) -> bool:
         return False
     if not _settings(result) and summary._limit(prev) != summary._limit(result):
         return False  # settings unread: a moved limit (GPU to CPU, a new cap) means a change
-    if summary.settings_changes(prev, result):
+    if settings_changed(prev, result):
         return False
     if _system_changes(prev, result):  # hardware, driver, Windows settings, display
         return False
@@ -272,7 +280,7 @@ def _name(setup: Setup, before: Setup | None) -> None:
     """Name a setup: the user's label, else what changed from the setup before."""
     first, prev = setup.runs[0][1], before.runs[-1][1] if before else None
     if prev is not None:
-        changes = summary.settings_changes(prev, first) or []
+        changes = settings_changed(prev, first) or []
         setup.changes = changes or _system_changes(prev, first)
         kind = "settings" if changes else "system" if setup.changes else "time"
     else:
@@ -285,7 +293,7 @@ def _name(setup: Setup, before: Setup | None) -> None:
         key, va, vb = setup.changes[0]
         if kind == "settings":
             key = short_key(key, [k for k, _ in _settings(first)])
-        more = f" +{len(setup.changes) - 1}" if len(setup.changes) > 1 else ""
+        more = f" +{len(setup.changes) - 1} more" if len(setup.changes) > 1 else ""
         setup.name = f"{key} {va} → {vb}{more}"
     else:  # the first setup, or one split off with nothing named: when it was captured
         setup.name = summary.when(first["capture"].get("started"))
@@ -556,7 +564,7 @@ def profile(
             )
         )
     tested.reverse()
-    differs = summary.settings_changes(base.result, best.result) if best and base else None
+    differs = settings_changed(base.result, best.result) if best and base else None
     if best is base:
         status, change = "base", "BASE"  # also when nothing else was measured against it
     else:
