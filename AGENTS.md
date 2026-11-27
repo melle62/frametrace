@@ -210,7 +210,8 @@ How work moves between them:
 6. **Grok Bots stay in their lanes.** The Research Bot only reads (the dataset, the web) and
    keeps one study log per game in the general skill's format, every entry tagged measured
    (community), seen (dataset), guide (with a link) or unknown. The Skills Bot turns those logs
-   into PRs that change `skills/` only: never app code, never the community-data tables.
+   into PRs that change `skills/` only (through a Cursor cloud agent, after Melvin's OK):
+   never app code, never the community-data tables.
    Measured numbers in a skill still come only from `tools/aggregate.py`.
 
 ## 10. Task queue
@@ -242,10 +243,11 @@ and a weekly game-research run (Forza Horizon 6, then DayZ, then CS2 updates). I
 measured yet" run plans are Melvin's benchmark queue. Engine findings go to its Reader notes,
 which become per-engine settings readers here.
 
-**Grok Bot, Skills:** one PR per game on `skills/` (branch `feature/skill-<slug>-<date>`),
-opened through a Cursor cloud agent after `tools/sync_skills.py --check` and `pytest`. Claude
-reviews it, then Melvin verifies and merges. A ruleset on `main` that requires a pull request
-should be in place.
+**Grok Bot, Skills:** plans changes to `skills/` from the study logs, waits for Melvin's OK in
+chat, then hands each one to a Cursor cloud agent, which opens one PR per game (branch
+`feature/skill-<slug>-<date>`) after `tools/sync_skills.py --check`, `pytest` and
+`ruff check .`. Claude reviews each PR, then Melvin verifies and merges. No GitHub token sits
+on the Bots' shared computer; a ruleset on `main` requires a pull request.
 
 ## 11. Ideas, not decided
 
