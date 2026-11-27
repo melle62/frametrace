@@ -195,11 +195,13 @@ def write_capture(
 
 
 def demo_captures(root: Path) -> None:
-    """CS2 benchmark runs as a tuning session: a base run three times (one hitchy, left out of
-    the stack), then one change per run; a capped run of another length; DayZ; a short FH6."""
+    """CS2 benchmark runs as a tuning session: a base run three times, bundled by the user (one
+    hitchy, left out of the bundle's numbers), then one change per run; a capped run of another
+    length; DayZ; a short FH6."""
     hitches = ((23.0, 9.6), (61.4, 14.8), (84.2, 11.2))
     hitchy = tuple((0.5 + i * 0.19, 9.5) for i in range(500))  # ~1.2% of frames: the 1% low
     lows = {"key": "lows"}
+    base = "20261126-2230-cs2"  # the bundle the base runs were dragged into
     write_capture(
         root, "20261126-2246-cs2", "2026-11-26T22:46:00+01:00",
         frames(8, 100, 2.12, 0.94, 1.0, latency_ms=6.4, hitches=hitches[:1]),
@@ -213,17 +215,17 @@ def demo_captures(root: Path) -> None:
     write_capture(
         root, "20261126-2237-cs2", "2026-11-26T22:37:00+01:00",
         frames(7, 100, 2.28, 0.94, 1.0, latency_ms=7.0, hitches=hitchy),
-        settings=cs2_settings(), goal=lows,
+        settings=cs2_settings(), goal=lows, user={"bundle": base},
     )  # fmt: skip
     write_capture(
         root, "20261126-2234-cs2", "2026-11-26T22:34:00+01:00",
         frames(6, 100, 2.28, 0.94, 1.0, latency_ms=7.0, hitches=hitches[2:]),
-        settings=cs2_settings(), goal=lows,
+        settings=cs2_settings(), goal=lows, user={"bundle": base},
     )  # fmt: skip
     write_capture(
         root, "20261126-2230-cs2", "2026-11-26T22:30:00+01:00",
         frames(2, 100, 2.28, 0.94, 1.0, latency_ms=7.1, hitches=hitches[1:]),
-        settings=cs2_settings(), goal=lows, user={"label": "Baseline"},
+        settings=cs2_settings(), goal=lows, user={"label": "Baseline", "bundle": base},
     )  # fmt: skip
     write_capture(
         root, "20261126-2211-cs2", "2026-11-26T22:11:00+01:00",
@@ -347,10 +349,24 @@ def shots(out: Path, themes: list[str], readme: bool) -> None:
         rows = list(app.rail_order)  # one per setup, newest first
         msaa, shadows, base, capped, dayz, fh6 = rows
         app.select(base, add=False)
-        grab(root, out / f"{name}-stack.png")
+        grab(root, out / f"{name}-bundle.png")
         app.page_summary.canvas.yview_moveto(1.0)
-        grab(root, out / f"{name}-stack-bottom.png")
+        grab(root, out / f"{name}-bundle-bottom.png")
         app.page_summary.canvas.yview_moveto(0.0)
+        bundle = app.setup_for(base)
+        app.toggle_bundle(bundle.bundle)  # open: its runs as a tree
+        grab(root, out / f"{name}-bundle-open.png")
+        app.select(bundle.children[0].key, add=False)
+        grab(root, out / f"{name}-bundle-run.png")
+        app.select(shadows, add=False)
+        bundle = app.setup_for(base)  # the list was drawn again: a new row object
+        app.drag = {"key": shadows, "x": 0, "y": 0, "moving": True, "lit": None}
+        target = next(v for v in app.drop_targets.values() if v[0] == "row" and v[1] is bundle)
+        app._light(target)  # dragging a run onto the bundle
+        app.count_label.configure(text=app.drop_action(shadows, target)[0], fg=app.t.c["text1"])
+        grab(root, out / f"{name}-drag.png")
+        app.drag = None
+        app.toggle_bundle(bundle.bundle)
         app.select(shadows, add=False)
         app.select(msaa, add=True)
         grab(root, out / f"{name}-compare.png")

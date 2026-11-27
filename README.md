@@ -101,18 +101,20 @@ against a pinned SHA-256). Recording needs administrator rights or membership in
 5. Change the 1–3 settings it suggests, capture the same scene again, select both captures and
    copy the comparison back into the same chat.
 
-Captures are saved in `Documents\Frametrace\captures` and listed on the left as a feed of what
-you tested: one row per setup, under its game. Runs with nothing changed between them stack into
-one row (`×3`) and count as one result, the mean of the runs; a run far from the others is left
-out (`×2/3`). Each row is named after what changed (`shadow_quality 2 → 1`, `RAM speed 4800 →
-5600 MT/s`) unless you rename it, and shows the number for your goal and how it does against the
-base (the oldest comparable row, or the one you pin): `+7.5%`, `-1.3%`, or `SAME` inside run-to-run
-noise. <kbd>Ctrl</kbd>+click a second row to compare the two. Click a game's name for its
-**profile**: the best setup you've measured for your goal (or the one you chose with *Use as my
-settings*), how it differs from the base, and what each tested change did on your PC, with Copy
-profile for the AI. Right-click a row to rename it, set it as the base, split a stack, move it into
-a group of your own, open its folder, copy its report or delete it. Deleted captures go to the
-Recycle Bin.
+Captures are saved in `Documents\Frametrace\captures` and listed on the left under their game,
+one row per run. Each row is named after what changed from the row before (`shadow_quality 2 →
+1`, `RAM speed 4800 → 5600 MT/s`) unless you rename it, and shows the number for your goal and how
+it does against the base (the oldest comparable row, or the one you pin): `+7.5%`, `-1.3%`, or
+`SAME` inside run-to-run noise. **Drag a run onto another run** to bundle repeats of the same
+setup: the bundle (`×3`) counts as one result, the mean of its runs, and a run far from the others
+is left out (`×2/3`). Open a bundle with its arrow to see its runs as a tree; drag a run out onto
+the heading to take it out, onto a group's heading to move it there, or onto its game's heading
+to take it out of the group. <kbd>Ctrl</kbd>+click a second row to compare the two. Click a game's
+name for its **profile**: the best setup you've measured for your goal (or the one you chose with
+*Use as my settings*), how it differs from the base, and what each tested change did on your PC,
+with Copy profile for the AI. Right-click a row for the same moves (bundle with the selected row,
+unbundle, move to a group) and to rename it, set it as the base, open its folder, copy its report
+or delete it. Deleted captures go to the Recycle Bin.
 
 **Sharing (optional).** On first start the window asks whether to share your captures and
 comparisons with the open [Frametrace dataset](https://github.com/melle62/frametrace-data). It

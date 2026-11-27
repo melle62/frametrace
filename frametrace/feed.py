@@ -1,9 +1,10 @@
 """The captures list as a feed of setups, and each game's profile.
 
-A setup is what the user tested: captures of the same game, one after another, with nothing
-changed between them (same in-game settings, system and display, about the same length, no
-new label). Those runs stack into one row, and the row's numbers are the runs combined. A
-row is named after what changed from the setup before it, unless the user named it.
+A setup is one row: a single run, or a bundle of runs the user put together (dragged one run
+onto another). Nothing bundles on its own: two runs in a row with the same settings can still
+be different scenes, so the user decides. A bundle's numbers are its runs combined, and it
+opens like a folder to show each run. A row is named after what changed from the row before
+it, unless the user named it.
 
 Every row is measured against a base: the oldest setup it can be compared with (same
 display, about the same length), unless the user pinned another. So a game with benchmark
@@ -30,6 +31,7 @@ from frametrace import gamesettings, goals, quality, summary
 Capture = tuple[Path, dict]
 
 NAMED = ("label", "settings", "system")  # setup kinds whose name says what the setup is
+BUNDLE_MARK = "~bundle~"  # a bundle's key in the list: a path no capture folder can have
 LENGTH_RATIO = 1.25  # runs this far apart in length are another scene (as in compare notes)
 
 # Short silk names for the metric column; anything else is shown upper-cased.
@@ -170,6 +172,7 @@ def _apart(a: float, b: float, name: str) -> float:
 class Setup:
     heading: str
     runs: list[Capture]  # oldest first
+    bundle: str | None = None  # the bundle id the user's runs share (result.json user.bundle)
     name: str = ""
     kind: str = "time"  # label, settings, system, first or time: where the name came from
     changes: list[tuple[str, str, str]] = field(default_factory=list)  # from the setup before
@@ -177,13 +180,30 @@ class Setup:
     spread: bool = False  # the runs disagree beyond noise and none could be left out
     value: float | None = None  # the heading's metric, runs combined
     base: Setup | None = field(default=None, repr=False)  # what this row is measured against
-    status: str = "na"  # against the base: base, better, worse, same, na; alone: no others
+    # against the base: base, better, worse, same, na; alone: nothing measured against it.
+    # A run inside a bundle: run (counts) or out (left out of the bundle's numbers).
+    status: str = "na"
     change: str = ""  # "+3.1%", "SAME", "BASE" or "n/a"
+    children: list[Setup] = field(default_factory=list, repr=False)  # a bundle's runs, oldest first
+    parent: Setup | None = field(default=None, repr=False)  # the bundle a run row belongs to
+    mixed: list[tuple[str, str, str]] = field(default_factory=list)  # what differs inside a bundle
     _combined: dict | None = None
 
     @property
+    def is_bundle(self) -> bool:
+        return self.bundle is not None and self.count > 1
+
+    @property
+    def key(self) -> Path:
+        """How the list and the selection know this row: the run's folder, or for a bundle a
+        path next to its runs that no capture folder can have."""
+        if self.is_bundle:
+            return bundle_key(self.runs[0][0], self.bundle)
+        return self.runs[0][0]
+
+    @property
     def folder(self) -> Path:
-        """The newest run: how the list and the selection know this setup."""
+        """The newest run's folder: what Open folder opens."""
         return self.runs[-1][0]
 
     @property
@@ -208,11 +228,6 @@ class Setup:
         return next((summary.label(r) for _, r in self.runs if summary.label(r)), None)
 
     @property
-    def split(self) -> bool:
-        """The user split this setup off from the one before."""
-        return bool((self.runs[0][1].get("user") or {}).get("split"))
-
-    @property
     def count_text(self) -> str:
         """×3, or ×2/3 when a run was left out; empty for a single run."""
         if self.count < 2:
@@ -229,28 +244,22 @@ class Setup:
             self._combined = combine(self.used_runs, self.runs)
             if self.label:  # the setup's name, even when its newest run has none
                 self._combined["user"] = {**(self._combined.get("user") or {}), "label": self.label}
+            if self.mixed:  # the report says what isn't the same across the runs
+                self._combined["stack"]["mixed"] = [list(m) for m in self.mixed]
         return self._combined
 
 
-def continues(setup: Setup, result: dict) -> bool:
-    """Is this capture another run of the setup (nothing changed since its newest run)?"""
-    prev = setup.runs[-1][1]
-    if (result.get("user") or {}).get("split"):
-        return False
-    if exe(prev) != exe(result):
-        return False
-    lab = summary.label(result)
-    if lab and lab != setup.label:
-        return False
-    if bool(_settings(prev)) != bool(_settings(result)):
-        return False
-    if not _settings(result) and summary._limit(prev) != summary._limit(result):
-        return False  # settings unread: a moved limit (GPU to CPU, a new cap) means a change
-    if settings_changed(prev, result):
-        return False
-    if _system_changes(prev, result):  # hardware, driver, Windows settings, display
-        return False
-    return same_length(prev, result)
+def bundle_key(folder: Path, bundle: str) -> Path:
+    return folder.parent / f"{BUNDLE_MARK}{bundle}"
+
+
+def is_bundle_key(key: Path) -> bool:
+    return key.name.startswith(BUNDLE_MARK)
+
+
+def bundle_of(result: dict) -> str | None:
+    """The bundle the user put this run in (result.json user.bundle), if any."""
+    return (result.get("user") or {}).get("bundle") or None
 
 
 def _system_changes(a: dict, b: dict) -> list[tuple[str, str, str]]:
@@ -305,20 +314,51 @@ def _name(setup: Setup, before: Setup | None) -> None:
             key = short_key(key, [k for k, _ in _settings(first)])
         more = f" +{len(setup.changes) - 1} more" if len(setup.changes) > 1 else ""
         setup.name = f"{key} {va} → {vb}{more}"
-    else:  # the first setup, or one split off with nothing named: when it was captured
+    else:  # the first row, or nothing changed: when it was captured
         setup.name = summary.when(first["capture"].get("started"))
 
 
-def stack(captures: list[Capture], heading: str) -> list[Setup]:
-    """Captures (oldest first) of one heading as setups, oldest first."""
+def _differences(runs: list[Capture]) -> list[tuple[str, str, str]]:
+    """What isn't the same across a bundle's runs: settings, system, display, length."""
+    first = runs[0][1]
+    out: list[tuple[str, str, str]] = []
+    for _, r in runs[1:]:
+        for change in (settings_changed(first, r) or []) + _system_changes(first, r):
+            if change[0] not in {c[0] for c in out}:
+                out.append(change)
+        if exe(first) != exe(r) and "Game" not in {c[0] for c in out}:
+            out.append(("Game", first["capture"].get("app"), r["capture"].get("app")))
+        if not same_length(first, r) and "Length" not in {c[0] for c in out}:
+            out.append(("Length", f"{_length(first):.0f} s", f"{_length(r):.0f} s"))
+    return out
+
+
+def assemble(captures: list[Capture], heading: str) -> list[Setup]:
+    """Captures (oldest first) of one heading as rows, oldest first.
+
+    Every run is its own row, except runs the user bundled (the same user.bundle): those are
+    one row, placed at its oldest run.
+    """
     setups: list[Setup] = []
+    bundles: dict[str, Setup] = {}
     for folder, result in captures:
-        if setups and continues(setups[-1], result):
-            setups[-1].runs.append((folder, result))
-        else:
-            setups.append(Setup(heading, [(folder, result)]))
+        b = bundle_of(result)
+        if b and b in bundles:
+            bundles[b].runs.append((folder, result))
+            continue
+        s = Setup(heading, [(folder, result)], bundle=b)
+        setups.append(s)
+        if b:
+            bundles[b] = s
     for i, s in enumerate(setups):
         _name(s, setups[i - 1] if i else None)
+        if s.is_bundle:
+            s.mixed = _differences(s.runs)
+            s.children = [
+                Setup(heading, [run], name=summary.when(run[1]["capture"].get("started")),
+                      kind="time", parent=s)
+                for run in s.runs
+            ]  # fmt: skip
     return setups
 
 
@@ -409,6 +449,7 @@ class Heading:
         return list(reversed(self.setups))
 
     def setup_of(self, folder: Path) -> Setup | None:
+        """The row a run's folder is in (a bundle, or the run itself)."""
         return next((s for s in self.setups if folder in s.folders), None)
 
 
@@ -469,11 +510,19 @@ def build(
         order.setdefault(key, (title, custom, []))[2].append((folder, result))
     out = []
     for key, (title, custom, caps) in order.items():
-        setups = stack(list(reversed(caps)), key)
+        setups = assemble(list(reversed(caps)), key)
         results = [r for _, r in caps]
         metric = metric_for(goal, results, target)
         for s in setups:
             judge_runs(s, metric, target)
+            for child, used in zip(s.children, s.used):
+                child.value = metric_value(child.result, metric, target) if metric else None
+                child.status = "run" if used else "out"
+            combined = metric_value(s.result, metric, target) if metric and s.children else None
+            for child in s.children:  # each run against the bundle's combined number
+                if combined and child.value is not None:
+                    pct = 100 * (child.value - combined) / combined
+                    child.change = "0.0%" if abs(pct) < 0.05 else f"{pct:+.1f}%"
         names_pinned = pins(bases, key)
         pinned = [s for s in setups if names_pinned and any(
             n in {f.name for f in s.folders} for n in names_pinned)]  # fmt: skip
